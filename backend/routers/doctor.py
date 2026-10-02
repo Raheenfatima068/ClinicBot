@@ -34,10 +34,26 @@ def require_doctor(current_user: User):
 
 @router.get("/dashboard")
 def doctor_dashboard(
+    review_status: str | None = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     require_doctor(current_user)
+
+    allowed_statuses = [
+        "pending",
+        "reviewed",
+        "approved"
+    ]
+
+    if review_status is not None and review_status not in allowed_statuses:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Invalid review status. "
+                "Allowed values: pending, reviewed, approved"
+            )
+        )
 
     sessions = (
         db.query(IntakeSession)
@@ -56,6 +72,33 @@ def doctor_dashboard(
     for session in sessions:
         patient = session.patient
         user = patient.user
+
+        clinical_summary = (
+            db.query(ClinicalSummary)
+            .filter(
+                ClinicalSummary.intake_session_id == session.id
+            )
+            .first()
+        )
+
+        # Count all summary statuses
+        if clinical_summary:
+            if clinical_summary.review_status == "pending":
+                pending_reviews += 1
+
+            elif clinical_summary.review_status == "reviewed":
+                reviewed_summaries += 1
+
+            elif clinical_summary.review_status == "approved":
+                approved_summaries += 1
+
+        # Apply review-status filter
+        if review_status is not None:
+            if clinical_summary is None:
+                continue
+
+            if clinical_summary.review_status != review_status:
+                continue
 
         symptoms = (
             db.query(Symptom)
@@ -89,14 +132,6 @@ def doctor_dashboard(
             .all()
         )
 
-        clinical_summary = (
-            db.query(ClinicalSummary)
-            .filter(
-                ClinicalSummary.intake_session_id == session.id
-            )
-            .first()
-        )
-
         summary_data = None
 
         if clinical_summary:
@@ -108,16 +143,6 @@ def doctor_dashboard(
                 "created_at": clinical_summary.created_at,
                 "updated_at": clinical_summary.updated_at
             }
-
-            # Count summary review statuses
-            if clinical_summary.review_status == "pending":
-                pending_reviews += 1
-
-            elif clinical_summary.review_status == "reviewed":
-                reviewed_summaries += 1
-
-            elif clinical_summary.review_status == "approved":
-                approved_summaries += 1
 
         dashboard_data.append(
             {
@@ -131,6 +156,7 @@ def doctor_dashboard(
                     "phone": patient.phone,
                     "preferred_language": patient.preferred_language
                 },
+
                 "intake_session": {
                     "session_id": session.id,
                     "status": session.status,
@@ -138,6 +164,7 @@ def doctor_dashboard(
                     "symptom_duration": session.symptom_duration,
                     "created_at": session.created_at
                 },
+
                 "symptoms": [
                     {
                         "id": item.id,
@@ -147,6 +174,7 @@ def doctor_dashboard(
                     }
                     for item in symptoms
                 ],
+
                 "medical_history": [
                     {
                         "id": item.id,
@@ -155,6 +183,7 @@ def doctor_dashboard(
                     }
                     for item in medical_history
                 ],
+
                 "medications": [
                     {
                         "id": item.id,
@@ -164,6 +193,7 @@ def doctor_dashboard(
                     }
                     for item in medications
                 ],
+
                 "allergies": [
                     {
                         "id": item.id,
@@ -172,6 +202,7 @@ def doctor_dashboard(
                     }
                     for item in allergies
                 ],
+
                 "clinical_summary": summary_data
             }
         )
@@ -193,6 +224,10 @@ def doctor_dashboard(
         },
 
         "total_sessions": len(dashboard_data),
+
+        "filter": {
+            "review_status": review_status
+        },
 
         "sessions": dashboard_data
     }
