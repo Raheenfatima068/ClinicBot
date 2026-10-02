@@ -35,6 +35,7 @@ def require_doctor(current_user: User):
 @router.get("/dashboard")
 def doctor_dashboard(
     review_status: str | None = None,
+    search: str | None = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -73,6 +74,28 @@ def doctor_dashboard(
         patient = session.patient
         user = patient.user
 
+        # Apply patient search filter
+        if search is not None:
+            search_text = search.strip().lower()
+
+            patient_name = (
+                user.full_name.lower()
+                if user.full_name
+                else ""
+            )
+
+            patient_email = (
+                user.email.lower()
+                if user.email
+                else ""
+            )
+
+            if (
+                search_text not in patient_name
+                and search_text not in patient_email
+            ):
+                continue
+
         clinical_summary = (
             db.query(ClinicalSummary)
             .filter(
@@ -81,7 +104,7 @@ def doctor_dashboard(
             .first()
         )
 
-        # Count all summary statuses
+        # Count summary statuses
         if clinical_summary:
             if clinical_summary.review_status == "pending":
                 pending_reviews += 1
@@ -226,7 +249,8 @@ def doctor_dashboard(
         "total_sessions": len(dashboard_data),
 
         "filter": {
-            "review_status": review_status
+            "review_status": review_status,
+            "search": search
         },
 
         "sessions": dashboard_data
