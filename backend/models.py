@@ -160,7 +160,12 @@ class IntakeSession(Base):
         back_populates="intake_session",
         cascade="all, delete-orphan"
     )
-
+    clinical_summary = relationship(
+        "ClinicalSummary",
+        back_populates="intake_session",
+        uselist=False,
+        cascade="all, delete-orphan"
+    )
 
 class Symptom(Base):
     __tablename__ = "symptoms"
@@ -293,4 +298,51 @@ class Allergy(Base):
     intake_session = relationship(
         "IntakeSession",
         back_populates="allergies"
+    )
+class ClinicalSummary(Base):
+    __tablename__ = "clinical_summaries"
+
+    id = Column(
+        Integer,
+        primary_key=True,
+        index=True
+    )
+
+    intake_session_id = Column(
+        Integer,
+        ForeignKey("intake_sessions.id"),
+        nullable=False,
+        unique=True
+    )
+
+    summary = Column(
+        String(5000),
+        nullable=False
+    )
+
+    review_status = Column(
+        String(20),
+        nullable=False,
+        default="pending"
+    )
+
+    doctor_notes = Column(
+        String(5000),
+        nullable=True
+    )
+
+    created_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now()
+    )
+
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now()
+    )
+
+    intake_session = relationship(
+        "IntakeSession",
+        back_populates="clinical_summary"
     )

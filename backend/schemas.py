@@ -1,3 +1,4 @@
+
 from pydantic import BaseModel, EmailStr
 
 
@@ -25,3 +26,13 @@ class UserLogin(BaseModel):
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str
+
+
+# ============================================================
+# Clinical Summary Review
+# ============================================================
+
+class ClinicalSummaryReview(BaseModel):
+    review_status: str
+    doctor_notes: str | None = None
+
