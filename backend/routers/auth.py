@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models import User
+from models import User, PatientProfile
 from schemas import (
     UserRegister,
     UserResponse,
@@ -43,6 +43,7 @@ def register_user(
             detail="Email already registered"
         )
 
+    # Create patient user
     new_user = User(
         full_name=user_data.full_name,
         email=user_data.email,
@@ -55,6 +56,18 @@ def register_user(
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
+
+    # Create patient profile automatically
+    patient_profile = PatientProfile(
+        user_id=new_user.id,
+        age=None,
+        gender=None,
+        phone=None,
+        preferred_language="English"
+    )
+
+    db.add(patient_profile)
+    db.commit()
 
     return new_user
 
