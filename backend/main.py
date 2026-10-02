@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from database import Base, engine
 from models import User
@@ -13,10 +14,25 @@ from routers.conversation import router as conversation_router
 from routers.ai import router as ai_router
 from routers.doctor import router as doctor_router
 
+
 app = FastAPI(
     title="ClinicBot API",
     description="Pre-Consultation Patient Intake & Symptom Summary Portal",
     version="1.0.0"
+)
+
+
+# CORS configuration
+# Allows the Next.js frontend to communicate with the FastAPI backend.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
@@ -33,6 +49,7 @@ app.include_router(allergies_router)
 app.include_router(conversation_router)
 app.include_router(ai_router)
 app.include_router(doctor_router)
+
 
 @app.get("/")
 def root():
