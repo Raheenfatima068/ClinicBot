@@ -88,6 +88,12 @@ type DashboardResponse = {
   sessions: Session[];
 };
 
+type SoapSection = {
+  title: string;
+  description: string;
+  content: string;
+};
+
 export default function DoctorDashboard() {
   const router = useRouter();
 
@@ -196,12 +202,15 @@ export default function DoctorDashboard() {
 
   function openSession(session: Session) {
     setSelectedSession(session);
+
     setReviewNotes(
       session.clinical_summary?.doctor_notes || ""
     );
+
     setReviewStatusValue(
       session.clinical_summary?.review_status || "reviewed"
     );
+
     setReviewMessage("");
   }
 
@@ -287,35 +296,158 @@ export default function DoctorDashboard() {
   function getStatusStyle(status: string | undefined) {
     switch (status) {
       case "approved":
-        return "bg-emerald-50 text-emerald-700 border-emerald-200";
+        return "border-emerald-200 bg-emerald-50 text-emerald-700";
 
       case "reviewed":
-        return "bg-blue-50 text-blue-700 border-blue-200";
+        return "border-blue-200 bg-blue-50 text-blue-700";
 
       case "pending":
-        return "bg-amber-50 text-amber-700 border-amber-200";
+        return "border-amber-200 bg-amber-50 text-amber-700";
 
       default:
-        return "bg-slate-100 text-slate-600 border-slate-200";
+        return "border-slate-200 bg-slate-100 text-slate-600";
     }
   }
 
   function getInitials(name: string) {
     return name
       .split(" ")
+      .filter(Boolean)
       .map((word) => word[0])
       .slice(0, 2)
       .join("")
       .toUpperCase();
   }
 
+  function parseSoapSummary(
+    summary: string
+  ): SoapSection[] {
+    const sections: SoapSection[] = [];
+
+    const normalized = summary.replace(/\r\n/g, "\n");
+
+    const patterns = [
+      {
+        key: "S",
+        title: "Subjective",
+        description:
+          "Patient-reported symptoms, concerns and history.",
+      },
+      {
+        key: "O",
+        title: "Objective",
+        description:
+          "Available objective or documented clinical information.",
+      },
+      {
+        key: "A",
+        title: "Assessment",
+        description:
+          "Clinical assessment generated from the available intake information.",
+      },
+      {
+        key: "P",
+        title: "Plan",
+        description:
+          "Documented next steps or considerations for professional review.",
+      },
+    ];
+
+    const matches: {
+      index: number;
+      key: string;
+      title: string;
+      description: string;
+    }[] = [];
+
+    for (const pattern of patterns) {
+      const regex = new RegExp(
+        `(?:^|\\n)\\s*(?:${pattern.key}\\s*[-:.]?|${pattern.title}\\s*[-:]?)\\s*`,
+        "i"
+      );
+
+      const match = regex.exec(normalized);
+
+      if (match && match.index !== undefined) {
+        matches.push({
+          index: match.index,
+          key: pattern.key,
+          title: pattern.title,
+          description: pattern.description,
+        });
+      }
+    }
+
+    if (matches.length === 0) {
+      return [
+        {
+          title: "Clinical Summary",
+          description:
+            "AI-assisted clinical documentation for professional review.",
+          content: summary,
+        },
+      ];
+    }
+
+    matches.sort((a, b) => a.index - b.index);
+
+    matches.forEach((match, index) => {
+      const nextIndex =
+        index < matches.length - 1
+          ? matches[index + 1].index
+          : normalized.length;
+
+      const rawContent = normalized
+        .slice(match.index, nextIndex)
+        .replace(
+          new RegExp(
+            `^\\s*(?:${match.key}\\s*[-:.]?|${match.title}\\s*[-:]?)\\s*`,
+            "i"
+          ),
+          ""
+        )
+        .trim();
+
+      if (rawContent) {
+        sections.push({
+          title: match.title,
+          description: match.description,
+          content: rawContent,
+        });
+      }
+    });
+
+    return sections.length > 0
+      ? sections
+      : [
+          {
+            title: "Clinical Summary",
+            description:
+              "AI-assisted clinical documentation for professional review.",
+            content: summary,
+          },
+        ];
+  }
+
+  function formatDate(date: string) {
+    try {
+      return new Date(date).toLocaleDateString(
+        "en-US",
+        {
+          year: "numeric",
+          month: "short",
+          day: "numeric",
+        }
+      );
+    } catch {
+      return date;
+    }
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
-
       {/* Sidebar */}
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 border-r border-slate-800 bg-slate-950 lg:flex lg:flex-col">
-
-        {/* Brand */}
         <div className="flex h-20 items-center border-b border-slate-800 px-6">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-teal-400 text-lg font-bold text-slate-950">
             C
@@ -332,14 +464,18 @@ export default function DoctorDashboard() {
           </div>
         </div>
 
-        {/* Navigation */}
         <nav className="flex-1 px-4 py-6">
-
           <p className="mb-3 px-3 text-[10px] font-bold uppercase tracking-widest text-slate-600">
             Workspace
           </p>
 
-          <button className="flex w-full items-center gap-3 rounded-xl bg-teal-400/10 px-3 py-3 text-sm font-semibold text-teal-300">
+          <button
+            onClick={() => {
+              setReviewStatus("");
+              fetchDashboard(search, "");
+            }}
+            className="flex w-full items-center gap-3 rounded-xl bg-teal-400/10 px-3 py-3 text-sm font-semibold text-teal-300"
+          >
             <span className="text-lg">⌂</span>
             Dashboard
           </button>
@@ -376,15 +512,11 @@ export default function DoctorDashboard() {
             <span className="text-lg">◆</span>
             Approved
           </button>
-
         </nav>
 
-        {/* Sidebar Bottom */}
         <div className="border-t border-slate-800 p-4">
-
           <div className="mb-3 rounded-xl bg-slate-900 p-3">
             <div className="flex items-center gap-3">
-
               <div className="flex h-9 w-9 items-center justify-center rounded-full bg-teal-400 text-xs font-bold text-slate-950">
                 {dashboard
                   ? getInitials(dashboard.doctor.name)
@@ -400,7 +532,6 @@ export default function DoctorDashboard() {
                   Doctor
                 </p>
               </div>
-
             </div>
           </div>
 
@@ -411,18 +542,13 @@ export default function DoctorDashboard() {
             <span>↪</span>
             Sign out
           </button>
-
         </div>
-
       </aside>
 
-      {/* Main Area */}
+      {/* Main */}
       <div className="lg:pl-64">
-
-        {/* Header */}
         <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 backdrop-blur">
           <div className="flex h-20 items-center justify-between px-5 sm:px-8">
-
             <div>
               <p className="text-xs font-semibold uppercase tracking-wider text-teal-600">
                 Doctor Portal
@@ -434,7 +560,6 @@ export default function DoctorDashboard() {
             </div>
 
             <div className="flex items-center gap-4">
-
               <button
                 onClick={() =>
                   fetchDashboard(search, reviewStatus)
@@ -463,16 +588,17 @@ export default function DoctorDashboard() {
                   </p>
                 </div>
               </div>
-
             </div>
           </div>
         </header>
 
-        {/* Content */}
         <main className="px-5 py-8 sm:px-8">
-
           {/* Welcome */}
           <div className="mb-8">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-teal-600">
+              Clinical workspace
+            </p>
+
             <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
               Good to see you,{" "}
               {dashboard?.doctor.name
@@ -480,13 +606,13 @@ export default function DoctorDashboard() {
                 : "Doctor"}
             </h1>
 
-            <p className="mt-2 text-sm text-slate-500">
-              Review patient intake information and clinical summaries
-              before consultation.
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
+              Review patient intake information and
+              AI-assisted clinical summaries before
+              consultation.
             </p>
           </div>
 
-          {/* Error */}
           {error && (
             <div className="mb-6 rounded-2xl border border-red-200 bg-red-50 p-4">
               <p className="text-sm font-medium text-red-700">
@@ -497,130 +623,79 @@ export default function DoctorDashboard() {
 
           {/* Statistics */}
           <div className="mb-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-
-            {/* Total */}
             <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <div className="flex items-start justify-between">
+              <p className="text-sm font-medium text-slate-500">
+                Total Sessions
+              </p>
 
-                <div>
-                  <p className="text-sm font-medium text-slate-500">
-                    Total Sessions
-                  </p>
+              <p className="mt-3 text-3xl font-bold text-slate-900">
+                {dashboard?.statistics.total_sessions ?? 0}
+              </p>
 
-                  <p className="mt-3 text-3xl font-bold text-slate-900">
-                    {dashboard?.statistics.total_sessions ?? 0}
-                  </p>
-
-                  <p className="mt-2 text-xs text-slate-400">
-                    Patient intake sessions
-                  </p>
-                </div>
-
-                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-slate-100 text-lg text-slate-600">
-                  ◉
-                </div>
-
-              </div>
+              <p className="mt-2 text-xs text-slate-400">
+                Patient intake sessions
+              </p>
             </div>
 
-            {/* Pending */}
             <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <div className="flex items-start justify-between">
+              <p className="text-sm font-medium text-slate-500">
+                Pending Reviews
+              </p>
 
-                <div>
-                  <p className="text-sm font-medium text-slate-500">
-                    Pending Reviews
-                  </p>
+              <p className="mt-3 text-3xl font-bold text-amber-600">
+                {dashboard?.statistics.pending_reviews ?? 0}
+              </p>
 
-                  <p className="mt-3 text-3xl font-bold text-amber-600">
-                    {dashboard?.statistics.pending_reviews ?? 0}
-                  </p>
-
-                  <p className="mt-2 text-xs text-slate-400">
-                    Awaiting doctor review
-                  </p>
-                </div>
-
-                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-amber-50 text-lg text-amber-600">
-                  ◷
-                </div>
-
-              </div>
+              <p className="mt-2 text-xs text-slate-400">
+                Awaiting doctor review
+              </p>
             </div>
 
-            {/* Reviewed */}
             <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <div className="flex items-start justify-between">
+              <p className="text-sm font-medium text-slate-500">
+                Reviewed
+              </p>
 
-                <div>
-                  <p className="text-sm font-medium text-slate-500">
-                    Reviewed
-                  </p>
+              <p className="mt-3 text-3xl font-bold text-blue-600">
+                {dashboard?.statistics.reviewed_summaries ?? 0}
+              </p>
 
-                  <p className="mt-3 text-3xl font-bold text-blue-600">
-                    {dashboard?.statistics.reviewed_summaries ?? 0}
-                  </p>
-
-                  <p className="mt-2 text-xs text-slate-400">
-                    Clinically reviewed
-                  </p>
-                </div>
-
-                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-50 text-lg text-blue-600">
-                  ✓
-                </div>
-
-              </div>
+              <p className="mt-2 text-xs text-slate-400">
+                Clinically reviewed
+              </p>
             </div>
 
-            {/* Approved */}
             <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <div className="flex items-start justify-between">
+              <p className="text-sm font-medium text-slate-500">
+                Approved
+              </p>
 
-                <div>
-                  <p className="text-sm font-medium text-slate-500">
-                    Approved
-                  </p>
+              <p className="mt-3 text-3xl font-bold text-emerald-600">
+                {dashboard?.statistics.approved_summaries ?? 0}
+              </p>
 
-                  <p className="mt-3 text-3xl font-bold text-emerald-600">
-                    {dashboard?.statistics.approved_summaries ?? 0}
-                  </p>
-
-                  <p className="mt-2 text-xs text-slate-400">
-                    Ready for consultation
-                  </p>
-                </div>
-
-                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-50 text-lg text-emerald-600">
-                  ◆
-                </div>
-
-              </div>
+              <p className="mt-2 text-xs text-slate-400">
+                Ready for consultation
+              </p>
             </div>
-
           </div>
 
-          {/* Sessions Section */}
+          {/* Sessions */}
           <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-
-            {/* Section Header */}
             <div className="border-b border-slate-200 px-5 py-5 sm:px-6">
-
               <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
-
                 <div>
                   <h2 className="text-lg font-bold text-slate-900">
                     Patient Intake Sessions
                   </h2>
 
                   <p className="mt-1 text-sm text-slate-500">
-                    Review patient information and AI-assisted clinical summaries.
+                    Select a patient to open the clinical
+                    review workspace.
                   </p>
                 </div>
 
-                {/* Search + Filter */}
                 <div className="flex flex-col gap-3 sm:flex-row">
-
                   <form
                     onSubmit={handleSearch}
                     className="relative"
@@ -644,30 +719,15 @@ export default function DoctorDashboard() {
                     onChange={handleStatusChange}
                     className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-medium text-slate-700 outline-none focus:border-teal-500 focus:ring-4 focus:ring-teal-500/10"
                   >
-                    <option value="">
-                      All statuses
-                    </option>
-
-                    <option value="pending">
-                      Pending
-                    </option>
-
-                    <option value="reviewed">
-                      Reviewed
-                    </option>
-
-                    <option value="approved">
-                      Approved
-                    </option>
+                    <option value="">All statuses</option>
+                    <option value="pending">Pending</option>
+                    <option value="reviewed">Reviewed</option>
+                    <option value="approved">Approved</option>
                   </select>
-
                 </div>
-
               </div>
-
             </div>
 
-            {/* Loading */}
             {loading && (
               <div className="flex items-center justify-center px-6 py-20">
                 <div className="text-center">
@@ -680,12 +740,10 @@ export default function DoctorDashboard() {
               </div>
             )}
 
-            {/* Empty */}
             {!loading &&
               dashboard &&
               dashboard.sessions.length === 0 && (
                 <div className="px-6 py-20 text-center">
-
                   <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-xl text-slate-400">
                     ◌
                   </div>
@@ -697,18 +755,14 @@ export default function DoctorDashboard() {
                   <p className="mt-1 text-sm text-slate-500">
                     Try changing your search or review filter.
                   </p>
-
                 </div>
               )}
 
-            {/* Desktop Table */}
             {!loading &&
               dashboard &&
               dashboard.sessions.length > 0 && (
                 <div className="overflow-x-auto">
-
                   <table className="w-full min-w-[850px]">
-
                     <thead className="border-b border-slate-200 bg-slate-50/80">
                       <tr>
                         <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-slate-500">
@@ -738,19 +792,15 @@ export default function DoctorDashboard() {
                     </thead>
 
                     <tbody className="divide-y divide-slate-100">
-
                       {dashboard.sessions.map((session) => (
-
                         <tr
-                          key={session.intake_session.session_id}
+                          key={
+                            session.intake_session.session_id
+                          }
                           className="transition hover:bg-slate-50"
                         >
-
-                          {/* Patient */}
                           <td className="px-6 py-5">
-
                             <div className="flex items-center gap-3">
-
                               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-teal-50 text-xs font-bold text-teal-700">
                                 {getInitials(
                                   session.patient.full_name
@@ -766,20 +816,17 @@ export default function DoctorDashboard() {
                                   {session.patient.email}
                                 </p>
                               </div>
-
                             </div>
-
                           </td>
 
-                          {/* Complaint */}
                           <td className="max-w-[230px] px-6 py-5">
                             <p className="truncate text-sm font-medium text-slate-800">
-                              {session.intake_session.chief_complaint ||
+                              {session.intake_session
+                                .chief_complaint ||
                                 "Not provided"}
                             </p>
                           </td>
 
-                          {/* Duration */}
                           <td className="px-6 py-5">
                             <span className="text-sm text-slate-600">
                               {session.intake_session
@@ -787,24 +834,24 @@ export default function DoctorDashboard() {
                             </span>
                           </td>
 
-                          {/* Session */}
                           <td className="px-6 py-5">
+                            <span className="inline-flex rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-600">
+                              #
+                              {
+                                session.intake_session
+                                  .session_id
+                              }
+                            </span>
 
-                            <div>
-                              <span className="inline-flex rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-600">
-                                #{session.intake_session.session_id}
-                              </span>
-
-                              <p className="mt-1 text-xs capitalize text-slate-400">
-                                {session.intake_session.status}
-                              </p>
-                            </div>
-
+                            <p className="mt-1 text-xs capitalize text-slate-400">
+                              {
+                                session.intake_session
+                                  .status
+                              }
+                            </p>
                           </td>
 
-                          {/* Review */}
                           <td className="px-6 py-5">
-
                             {session.clinical_summary ? (
                               <span
                                 className={`inline-flex rounded-lg border px-2.5 py-1 text-xs font-semibold capitalize ${getStatusStyle(
@@ -822,37 +869,26 @@ export default function DoctorDashboard() {
                                 No summary
                               </span>
                             )}
-
                           </td>
 
-                          {/* Action */}
                           <td className="px-6 py-5 text-right">
-
                             <button
                               onClick={() =>
                                 openSession(session)
                               }
                               className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-700 shadow-sm transition hover:border-teal-300 hover:bg-teal-50 hover:text-teal-700"
                             >
-                              View Details
+                              Review
                             </button>
-
                           </td>
-
                         </tr>
-
                       ))}
-
                     </tbody>
-
                   </table>
-
                 </div>
               )}
-
           </section>
 
-          {/* Mobile refresh */}
           <button
             onClick={() =>
               fetchDashboard(search, reviewStatus)
@@ -862,7 +898,6 @@ export default function DoctorDashboard() {
             ↻ Refresh Dashboard
           </button>
 
-          {/* Footer */}
           <footer className="mt-8 pb-4 text-center">
             <p className="text-xs text-slate-400">
               ClinicBot · AI-assisted clinical documentation
@@ -872,406 +907,555 @@ export default function DoctorDashboard() {
               Clinical summaries require professional doctor review.
             </p>
           </footer>
-
         </main>
       </div>
 
-      {/* Session Detail Modal */}
+      {/* Clinical Review Modal */}
       {selectedSession && (
-        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/50 px-4 py-8 backdrop-blur-sm">
-
-          <div className="mx-auto max-w-5xl">
-
-            <div className="overflow-hidden rounded-2xl bg-white shadow-2xl">
-
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/60 px-3 py-4 backdrop-blur-sm sm:px-6 sm:py-8">
+          <div className="mx-auto max-w-6xl">
+            <div className="overflow-hidden rounded-3xl bg-white shadow-2xl">
               {/* Modal Header */}
-              <div className="flex items-start justify-between border-b border-slate-200 px-6 py-5">
+              <div className="border-b border-slate-200 bg-white px-5 py-5 sm:px-7">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex min-w-0 items-center gap-4">
+                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-teal-50 font-bold text-teal-700">
+                      {getInitials(
+                        selectedSession.patient.full_name
+                      )}
+                    </div>
 
-                <div className="flex items-center gap-4">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h2 className="text-xl font-bold text-slate-900">
+                          {selectedSession.patient.full_name}
+                        </h2>
 
-                  <div className="flex h-12 w-12 items-center justify-center rounded-full bg-teal-50 font-bold text-teal-700">
-                    {getInitials(
-                      selectedSession.patient.full_name
-                    )}
+                        {selectedSession.clinical_summary && (
+                          <span
+                            className={`rounded-full border px-2.5 py-1 text-[11px] font-bold capitalize ${getStatusStyle(
+                              selectedSession.clinical_summary
+                                .review_status
+                            )}`}
+                          >
+                            {
+                              selectedSession
+                                .clinical_summary
+                                .review_status
+                            }
+                          </span>
+                        )}
+                      </div>
+
+                      <p className="mt-1 text-sm text-slate-500">
+                        Session #
+                        {
+                          selectedSession.intake_session
+                            .session_id
+                        }{" "}
+                        ·{" "}
+                        {formatDate(
+                          selectedSession.intake_session
+                            .created_at
+                        )}
+                      </p>
+                    </div>
                   </div>
 
-                  <div>
-                    <h2 className="text-xl font-bold text-slate-900">
-                      {selectedSession.patient.full_name}
-                    </h2>
-
-                    <p className="mt-1 text-sm text-slate-500">
-                      Intake Session #
-                      {selectedSession.intake_session.session_id}
-                    </p>
-                  </div>
-
+                  <button
+                    onClick={closeSession}
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-xl text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+                    aria-label="Close clinical review"
+                  >
+                    ×
+                  </button>
                 </div>
-
-                <button
-                  onClick={closeSession}
-                  className="flex h-9 w-9 items-center justify-center rounded-lg text-xl text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
-                >
-                  ×
-                </button>
-
               </div>
 
-              {/* Modal Content */}
-              <div className="grid gap-0 lg:grid-cols-2">
+              {/* Modal Body */}
+              <div className="grid lg:grid-cols-[minmax(0,1fr)_360px]">
+                {/* Clinical Content */}
+                <div className="min-w-0 p-5 sm:p-7">
+                  {/* Patient overview */}
+                  <div className="mb-7 rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                    <div className="mb-4 flex items-center justify-between">
+                      <div>
+                        <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-teal-600">
+                          Patient overview
+                        </p>
 
-                {/* Left */}
-                <div className="border-b border-slate-200 p-6 lg:border-b-0 lg:border-r">
+                        <h3 className="mt-1 text-base font-bold text-slate-900">
+                          Pre-consultation information
+                        </h3>
+                      </div>
 
-                  <h3 className="mb-5 text-sm font-bold uppercase tracking-wider text-slate-500">
-                    Patient Information
-                  </h3>
-
-                  <div className="grid grid-cols-2 gap-4">
-
-                    <div>
-                      <p className="text-xs text-slate-400">
-                        Age
-                      </p>
-                      <p className="mt-1 text-sm font-semibold text-slate-800">
-                        {selectedSession.patient.age ?? "—"}
-                      </p>
+                      <span className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-500">
+                        Intake
+                      </span>
                     </div>
 
-                    <div>
-                      <p className="text-xs text-slate-400">
-                        Gender
-                      </p>
-                      <p className="mt-1 text-sm font-semibold text-slate-800">
-                        {selectedSession.patient.gender || "—"}
-                      </p>
+                    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                      <div>
+                        <p className="text-xs text-slate-400">
+                          Age
+                        </p>
+
+                        <p className="mt-1 text-sm font-semibold text-slate-800">
+                          {selectedSession.patient.age ??
+                            "Not provided"}
+                        </p>
+                      </div>
+
+                      <div>
+                        <p className="text-xs text-slate-400">
+                          Gender
+                        </p>
+
+                        <p className="mt-1 text-sm font-semibold text-slate-800">
+                          {selectedSession.patient.gender ||
+                            "Not provided"}
+                        </p>
+                      </div>
+
+                      <div>
+                        <p className="text-xs text-slate-400">
+                          Phone
+                        </p>
+
+                        <p className="mt-1 text-sm font-semibold text-slate-800">
+                          {selectedSession.patient.phone ||
+                            "Not provided"}
+                        </p>
+                      </div>
+
+                      <div>
+                        <p className="text-xs text-slate-400">
+                          Language
+                        </p>
+
+                        <p className="mt-1 text-sm font-semibold text-slate-800">
+                          {selectedSession.patient
+                            .preferred_language ||
+                            "Not provided"}
+                        </p>
+                      </div>
                     </div>
 
-                    <div>
-                      <p className="text-xs text-slate-400">
-                        Phone
-                      </p>
-                      <p className="mt-1 text-sm font-semibold text-slate-800">
-                        {selectedSession.patient.phone || "—"}
-                      </p>
-                    </div>
+                    <div className="mt-5 grid gap-4 border-t border-slate-200 pt-5 sm:grid-cols-2">
+                      <div>
+                        <p className="text-xs text-slate-400">
+                          Chief complaint
+                        </p>
 
-                    <div>
-                      <p className="text-xs text-slate-400">
-                        Language
-                      </p>
-                      <p className="mt-1 text-sm font-semibold text-slate-800">
-                        {selectedSession.patient
-                          .preferred_language || "—"}
-                      </p>
-                    </div>
+                        <p className="mt-1 text-sm font-semibold leading-6 text-slate-800">
+                          {selectedSession.intake_session
+                            .chief_complaint ||
+                            "Not provided"}
+                        </p>
+                      </div>
 
+                      <div>
+                        <p className="text-xs text-slate-400">
+                          Symptom duration
+                        </p>
+
+                        <p className="mt-1 text-sm font-semibold text-slate-800">
+                          {selectedSession.intake_session
+                            .symptom_duration ||
+                            "Not provided"}
+                        </p>
+                      </div>
+                    </div>
                   </div>
 
-                  <div className="my-6 border-t border-slate-100" />
-
-                  <h3 className="mb-4 text-sm font-bold uppercase tracking-wider text-slate-500">
-                    Intake Information
-                  </h3>
-
-                  <div className="space-y-4">
-
-                    <div>
-                      <p className="text-xs text-slate-400">
-                        Chief Complaint
-                      </p>
-
-                      <p className="mt-1 text-sm font-semibold text-slate-800">
-                        {selectedSession.intake_session
-                          .chief_complaint || "Not provided"}
-                      </p>
-                    </div>
-
-                    <div>
-                      <p className="text-xs text-slate-400">
-                        Symptom Duration
-                      </p>
-
-                      <p className="mt-1 text-sm font-semibold text-slate-800">
-                        {selectedSession.intake_session
-                          .symptom_duration || "Not provided"}
-                      </p>
-                    </div>
-
-                  </div>
-
-                  <div className="my-6 border-t border-slate-100" />
-
-                  <div className="grid gap-5 sm:grid-cols-2">
-
+                  {/* Clinical details */}
+                  <div className="mb-7 grid gap-4 sm:grid-cols-2">
                     {/* Symptoms */}
-                    <div>
-                      <h3 className="mb-3 text-sm font-bold text-slate-800">
-                        Symptoms
-                      </h3>
+                    <div className="rounded-2xl border border-slate-200 bg-white p-5">
+                      <div className="mb-4 flex items-center justify-between">
+                        <h3 className="text-sm font-bold text-slate-900">
+                          Symptoms
+                        </h3>
+
+                        <span className="rounded-lg bg-teal-50 px-2 py-1 text-[11px] font-bold text-teal-700">
+                          {selectedSession.symptoms.length}
+                        </span>
+                      </div>
 
                       {selectedSession.symptoms.length > 0 ? (
-                        <ul className="space-y-2">
+                        <div className="space-y-2">
                           {selectedSession.symptoms.map(
                             (item) => (
-                              <li
+                              <div
                                 key={item.id}
-                                className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600"
+                                className="rounded-xl bg-slate-50 px-3 py-3"
                               >
-                                {item.name}
-                              </li>
+                                <p className="text-sm font-medium text-slate-700">
+                                  {item.name}
+                                </p>
+
+                                {(item.severity ||
+                                  item.duration) && (
+                                  <p className="mt-1 text-xs text-slate-400">
+                                    {item.severity
+                                      ? `Severity: ${item.severity}`
+                                      : ""}
+                                    {item.severity &&
+                                    item.duration
+                                      ? " · "
+                                      : ""}
+                                    {item.duration
+                                      ? `Duration: ${item.duration}`
+                                      : ""}
+                                  </p>
+                                )}
+                              </div>
                             )
                           )}
-                        </ul>
+                        </div>
                       ) : (
-                        <p className="text-xs text-slate-400">
-                          None reported
+                        <p className="text-sm text-slate-400">
+                          No symptoms reported.
                         </p>
                       )}
                     </div>
 
-                    {/* History */}
-                    <div>
-                      <h3 className="mb-3 text-sm font-bold text-slate-800">
+                    {/* Medical History */}
+                    <div className="rounded-2xl border border-slate-200 bg-white p-5">
+                      <h3 className="mb-4 text-sm font-bold text-slate-900">
                         Medical History
                       </h3>
 
                       {selectedSession.medical_history
                         .length > 0 ? (
-                        <ul className="space-y-2">
+                        <div className="space-y-2">
                           {selectedSession.medical_history.map(
                             (item) => (
-                              <li
+                              <div
                                 key={item.id}
-                                className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600"
+                                className="rounded-xl bg-slate-50 px-3 py-3"
                               >
-                                {item.condition}
-                              </li>
+                                <p className="text-sm font-medium text-slate-700">
+                                  {item.condition}
+                                </p>
+
+                                {item.details && (
+                                  <p className="mt-1 text-xs leading-5 text-slate-400">
+                                    {item.details}
+                                  </p>
+                                )}
+                              </div>
                             )
                           )}
-                        </ul>
+                        </div>
                       ) : (
-                        <p className="text-xs text-slate-400">
-                          None reported
+                        <p className="text-sm text-slate-400">
+                          No medical history reported.
                         </p>
                       )}
                     </div>
 
                     {/* Medications */}
-                    <div>
-                      <h3 className="mb-3 text-sm font-bold text-slate-800">
-                        Medications
+                    <div className="rounded-2xl border border-slate-200 bg-white p-5">
+                      <h3 className="mb-4 text-sm font-bold text-slate-900">
+                        Current Medications
                       </h3>
 
-                      {selectedSession.medications.length > 0 ? (
-                        <ul className="space-y-2">
+                      {selectedSession.medications
+                        .length > 0 ? (
+                        <div className="space-y-2">
                           {selectedSession.medications.map(
                             (item) => (
-                              <li
+                              <div
                                 key={item.id}
-                                className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600"
+                                className="rounded-xl bg-slate-50 px-3 py-3"
                               >
-                                {item.name}
-                                {item.dosage
-                                  ? ` · ${item.dosage}`
-                                  : ""}
-                                {item.frequency
-                                  ? ` · ${item.frequency}`
-                                  : ""}
-                              </li>
+                                <p className="text-sm font-medium text-slate-700">
+                                  {item.name}
+                                </p>
+
+                                {(item.dosage ||
+                                  item.frequency) && (
+                                  <p className="mt-1 text-xs text-slate-400">
+                                    {item.dosage || ""}
+                                    {item.dosage &&
+                                    item.frequency
+                                      ? " · "
+                                      : ""}
+                                    {item.frequency || ""}
+                                  </p>
+                                )}
+                              </div>
                             )
                           )}
-                        </ul>
+                        </div>
                       ) : (
-                        <p className="text-xs text-slate-400">
-                          None reported
+                        <p className="text-sm text-slate-400">
+                          No medications reported.
                         </p>
                       )}
                     </div>
 
                     {/* Allergies */}
-                    <div>
-                      <h3 className="mb-3 text-sm font-bold text-slate-800">
+                    <div className="rounded-2xl border border-red-100 bg-red-50/40 p-5">
+                      <h3 className="mb-4 text-sm font-bold text-red-900">
                         Allergies
                       </h3>
 
                       {selectedSession.allergies.length > 0 ? (
-                        <ul className="space-y-2">
+                        <div className="space-y-2">
                           {selectedSession.allergies.map(
                             (item) => (
-                              <li
+                              <div
                                 key={item.id}
-                                className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700"
+                                className="rounded-xl bg-white px-3 py-3"
                               >
-                                {item.allergen}
-                              </li>
+                                <p className="text-sm font-medium text-red-700">
+                                  {item.allergen}
+                                </p>
+
+                                {item.reaction && (
+                                  <p className="mt-1 text-xs text-red-500">
+                                    Reaction:{" "}
+                                    {item.reaction}
+                                  </p>
+                                )}
+                              </div>
                             )
                           )}
-                        </ul>
+                        </div>
                       ) : (
-                        <p className="text-xs text-slate-400">
-                          None reported
+                        <p className="text-sm text-red-400">
+                          No allergies reported.
                         </p>
                       )}
                     </div>
-
                   </div>
 
-                </div>
-
-                {/* Right */}
-                <div className="bg-slate-50/70 p-6">
-
-                  <div className="mb-5 flex items-center justify-between">
-
-                    <div>
-                      <h3 className="text-sm font-bold uppercase tracking-wider text-slate-500">
-                        Clinical Summary
-                      </h3>
-
-                      <p className="mt-1 text-xs text-slate-400">
-                        AI-assisted documentation for doctor review
-                      </p>
-                    </div>
-
-                    {selectedSession.clinical_summary && (
-                      <span
-                        className={`rounded-lg border px-2.5 py-1 text-xs font-semibold capitalize ${getStatusStyle(
-                          selectedSession.clinical_summary
-                            .review_status
-                        )}`}
-                      >
-                        {
-                          selectedSession.clinical_summary
-                            .review_status
-                        }
-                      </span>
-                    )}
-
-                  </div>
-
-                  {selectedSession.clinical_summary ? (
-                    <>
-                      <div className="max-h-[390px] overflow-y-auto rounded-xl border border-slate-200 bg-white p-5">
-
-                        <pre className="whitespace-pre-wrap font-sans text-sm leading-6 text-slate-700">
-                          {
-                            selectedSession.clinical_summary
-                              .summary
-                          }
-                        </pre>
-
-                      </div>
-
-                      {/* Review */}
-                      <div className="mt-6 rounded-xl border border-slate-200 bg-white p-5">
-
-                        <h3 className="text-sm font-bold text-slate-800">
-                          Doctor Review
-                        </h3>
-
-                        <p className="mt-1 text-xs text-slate-400">
-                          Update the clinical summary review status.
+                  {/* SOAP Summary */}
+                  <div>
+                    <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                      <div>
+                        <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-teal-600">
+                          AI-assisted documentation
                         </p>
 
-                        <label className="mt-4 block text-xs font-semibold text-slate-600">
-                          Review Status
-                        </label>
-
-                        <select
-                          value={reviewStatusValue}
-                          onChange={(event) =>
-                            setReviewStatusValue(
-                              event.target.value
-                            )
-                          }
-                          className="mt-2 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700 outline-none focus:border-teal-500 focus:ring-4 focus:ring-teal-500/10"
-                        >
-                          <option value="pending">
-                            Pending
-                          </option>
-
-                          <option value="reviewed">
-                            Reviewed
-                          </option>
-
-                          <option value="approved">
-                            Approved
-                          </option>
-                        </select>
-
-                        <label className="mt-4 block text-xs font-semibold text-slate-600">
-                          Doctor Notes
-                        </label>
-
-                        <textarea
-                          value={reviewNotes}
-                          onChange={(event) =>
-                            setReviewNotes(event.target.value)
-                          }
-                          rows={4}
-                          placeholder="Enter doctor review notes..."
-                          className="mt-2 w-full resize-none rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700 outline-none focus:border-teal-500 focus:bg-white focus:ring-4 focus:ring-teal-500/10"
-                        />
-
-                        {reviewMessage && (
-                          <div className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-xs font-medium text-slate-600">
-                            {reviewMessage}
-                          </div>
-                        )}
-
-                        <button
-                          onClick={saveReview}
-                          disabled={savingReview}
-                          className="mt-4 w-full rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-slate-900/10 transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          {savingReview
-                            ? "Saving..."
-                            : "Save Review"}
-                        </button>
-
-                      </div>
-                    </>
-                  ) : (
-                    <div className="rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center">
-                      <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-slate-100 text-slate-400">
-                        —
+                        <h3 className="mt-1 text-xl font-bold text-slate-900">
+                          Clinical Summary
+                        </h3>
                       </div>
 
-                      <p className="mt-4 text-sm font-semibold text-slate-700">
-                        No clinical summary available
-                      </p>
-
-                      <p className="mt-1 text-xs text-slate-400">
-                        A clinical summary has not been generated
-                        for this session.
+                      <p className="text-xs text-slate-400">
+                        Requires professional review
                       </p>
                     </div>
-                  )}
 
+                    {selectedSession.clinical_summary ? (
+                      <div className="space-y-4">
+                        {parseSoapSummary(
+                          selectedSession.clinical_summary
+                            .summary
+                        ).map((section) => (
+                          <div
+                            key={section.title}
+                            className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+                          >
+                            <div className="mb-3 flex items-start gap-3">
+                              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-teal-50 text-xs font-bold text-teal-700">
+                                {section.title
+                                  .charAt(0)
+                                  .toUpperCase()}
+                              </div>
+
+                              <div>
+                                <h4 className="text-sm font-bold text-slate-900">
+                                  {section.title}
+                                </h4>
+
+                                <p className="mt-0.5 text-xs text-slate-400">
+                                  {section.description}
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="whitespace-pre-wrap rounded-xl bg-slate-50 px-4 py-4 text-sm leading-6 text-slate-700">
+                              {section.content}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-10 text-center">
+                        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-white text-slate-400 shadow-sm">
+                          —
+                        </div>
+
+                        <p className="mt-4 text-sm font-semibold text-slate-700">
+                          No clinical summary available
+                        </p>
+
+                        <p className="mx-auto mt-1 max-w-sm text-xs leading-5 text-slate-400">
+                          A clinical summary has not been
+                          generated for this intake session.
+                        </p>
+                      </div>
+                    )}
+                  </div>
                 </div>
 
+                {/* Review Panel */}
+                <aside className="border-t border-slate-200 bg-slate-50/80 p-5 sm:p-7 lg:border-l lg:border-t-0">
+                  <div className="sticky top-24">
+                    <div className="mb-6">
+                      <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-teal-600">
+                        Doctor action
+                      </p>
+
+                      <h3 className="mt-1 text-xl font-bold text-slate-900">
+                        Review Summary
+                      </h3>
+
+                      <p className="mt-2 text-sm leading-6 text-slate-500">
+                        Confirm the review status and add
+                        notes for the clinical record.
+                      </p>
+                    </div>
+
+                    {selectedSession.clinical_summary ? (
+                      <>
+                        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                          <label className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                            Review status
+                          </label>
+
+                          <select
+                            value={reviewStatusValue}
+                            onChange={(event) =>
+                              setReviewStatusValue(
+                                event.target.value
+                              )
+                            }
+                            className="mt-3 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm font-semibold capitalize text-slate-700 outline-none transition focus:border-teal-500 focus:bg-white focus:ring-4 focus:ring-teal-500/10"
+                          >
+                            <option value="pending">
+                              Pending
+                            </option>
+
+                            <option value="reviewed">
+                              Reviewed
+                            </option>
+
+                            <option value="approved">
+                              Approved
+                            </option>
+                          </select>
+
+                          <div className="mt-5">
+                            <label
+                              htmlFor="doctor-notes"
+                              className="text-xs font-bold uppercase tracking-wider text-slate-500"
+                            >
+                              Doctor notes
+                            </label>
+
+                            <textarea
+                              id="doctor-notes"
+                              value={reviewNotes}
+                              onChange={(event) =>
+                                setReviewNotes(
+                                  event.target.value
+                                )
+                              }
+                              rows={7}
+                              placeholder="Add your clinical review notes..."
+                              className="mt-3 w-full resize-none rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm leading-6 text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-teal-500 focus:bg-white focus:ring-4 focus:ring-teal-500/10"
+                            />
+
+                            <p className="mt-2 text-right text-[11px] text-slate-400">
+                              {reviewNotes.length} characters
+                            </p>
+                          </div>
+
+                          {reviewMessage && (
+                            <div
+                              className={`mt-4 rounded-xl border px-4 py-3 text-sm font-medium ${
+                                reviewMessage.includes(
+                                  "successfully"
+                                )
+                                  ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                                  : "border-red-200 bg-red-50 text-red-700"
+                              }`}
+                            >
+                              {reviewMessage}
+                            </div>
+                          )}
+
+                          <button
+                            onClick={saveReview}
+                            disabled={savingReview}
+                            className="mt-5 w-full rounded-xl bg-slate-900 px-4 py-3.5 text-sm font-semibold text-white shadow-lg shadow-slate-900/10 transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {savingReview
+                              ? "Saving review..."
+                              : "Save Clinical Review"}
+                          </button>
+                        </div>
+
+                        <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                          <div className="flex gap-3">
+                            <div className="mt-0.5 text-amber-700">
+                              !
+                            </div>
+
+                            <div>
+                              <p className="text-xs font-bold text-amber-900">
+                                Professional review required
+                              </p>
+
+                              <p className="mt-1 text-xs leading-5 text-amber-800">
+                                The AI-generated summary is
+                                documentation support only. The
+                                doctor remains responsible for
+                                reviewing and approving the
+                                clinical information.
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="rounded-2xl border border-slate-200 bg-white p-6">
+                        <p className="text-sm font-semibold text-slate-700">
+                          Review unavailable
+                        </p>
+
+                        <p className="mt-2 text-xs leading-5 text-slate-400">
+                          There is no generated clinical
+                          summary to review for this session.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </aside>
               </div>
 
-              {/* Modal Footer */}
-              <div className="border-t border-slate-200 bg-white px-6 py-4 text-right">
+              {/* Footer */}
+              <div className="flex items-center justify-between border-t border-slate-200 bg-white px-5 py-4 sm:px-7">
+                <p className="hidden text-xs text-slate-400 sm:block">
+                  ClinicBot · Clinical review workspace
+                </p>
 
                 <button
                   onClick={closeSession}
-                  className="rounded-xl border border-slate-200 px-5 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-50"
+                  className="ml-auto rounded-xl border border-slate-200 px-5 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-50"
                 >
-                  Close
+                  Close Review
                 </button>
-
               </div>
-
             </div>
-
           </div>
-
         </div>
       )}
-
     </div>
   );
 }
