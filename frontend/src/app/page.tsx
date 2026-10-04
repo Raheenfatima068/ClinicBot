@@ -115,6 +115,8 @@ export default function DoctorDashboard() {
 
   const [savingReview, setSavingReview] = useState(false);
   const [reviewMessage, setReviewMessage] = useState("");
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [showSuccessToast, setShowSuccessToast] = useState(false);
 
   async function fetchDashboard(
     searchValue = search,
@@ -257,9 +259,12 @@ export default function DoctorDashboard() {
         );
       }
 
-      setReviewMessage(
-        "Clinical summary updated successfully."
-      );
+      setReviewMessage("Clinical summary updated successfully.");
+      setShowSuccessToast(true);
+
+      setTimeout(() => {
+      setShowSuccessToast(false);
+     }, 3500);
 
       await fetchDashboard(search, reviewStatus);
 
@@ -445,6 +450,65 @@ export default function DoctorDashboard() {
   }
 
   return (
+  <>
+    {showSuccessToast && (
+      <div
+        className="fixed right-4 top-4 z-[100] w-[calc(100%-2rem)] max-w-sm sm:right-6 sm:top-6"
+        role="status"
+        aria-live="polite"
+      >
+        <div className="flex items-start gap-3 rounded-2xl border border-emerald-200 bg-white p-4 shadow-xl shadow-slate-900/10">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-emerald-600">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              className="h-5 w-5"
+              aria-hidden="true"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M5 13l4 4L19 7"
+              />
+            </svg>
+          </div>
+
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-bold text-slate-900">
+              Review saved
+            </p>
+            <p className="mt-1 text-xs leading-5 text-slate-500">
+              Clinical summary updated successfully.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setShowSuccessToast(false)}
+            className="shrink-0 rounded-lg p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+            aria-label="Close notification"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              className="h-4 w-4"
+              aria-hidden="true"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M6 6l12 12M18 6L6 18"
+              />
+            </svg>
+          </button>
+        </div>
+      </div>
+    )}
+
     <div className="min-h-screen bg-slate-50 text-slate-900">
       {/* Sidebar */}
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 border-r border-slate-800 bg-slate-950 lg:flex lg:flex-col">
@@ -560,12 +624,27 @@ export default function DoctorDashboard() {
             </div>
 
             <div className="flex items-center gap-4">
-              <button
-                onClick={() =>
-                  fetchDashboard(search, reviewStatus)
-                }
-                className="hidden rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-600 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 sm:block"
-              >
+           <button
+            type="button"
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 shadow-sm transition hover:bg-slate-50 lg:hidden"
+            aria-label={
+            mobileMenuOpen
+            ? "Close navigation menu"
+            : "Open navigation menu"
+            }
+            aria-expanded={mobileMenuOpen}
+          >
+          <span className="text-xl">☰</span>
+          </button>
+
+          <button
+          type="button"
+          onClick={() =>
+          fetchDashboard(search, reviewStatus)
+          }
+          className="hidden rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-600 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 sm:block"
+          >
                 ↻ Refresh
               </button>
 
@@ -591,6 +670,63 @@ export default function DoctorDashboard() {
             </div>
           </div>
         </header>
+
+{mobileMenuOpen && (
+  <div className="border-b border-slate-200 bg-white px-5 py-4 shadow-sm lg:hidden">
+    <nav
+      aria-label="Mobile navigation"
+      className="space-y-2"
+    >
+      <button
+        type="button"
+        onClick={() => {
+          setReviewStatus("");
+          fetchDashboard(search, "");
+          setMobileMenuOpen(false);
+        }}
+        className="w-full rounded-xl px-4 py-3 text-left text-sm font-semibold text-slate-700 transition hover:bg-teal-50 hover:text-teal-700"
+      >
+        Dashboard
+      </button>
+
+      <button
+        type="button"
+        onClick={() => {
+          setReviewStatus("pending");
+          fetchDashboard(search, "pending");
+          setMobileMenuOpen(false);
+        }}
+        className="w-full rounded-xl px-4 py-3 text-left text-sm font-semibold text-slate-700 transition hover:bg-teal-50 hover:text-teal-700"
+      >
+        Pending Reviews
+      </button>
+
+      <button
+        type="button"
+        onClick={() => {
+          setReviewStatus("reviewed");
+          fetchDashboard(search, "reviewed");
+          setMobileMenuOpen(false);
+        }}
+        className="w-full rounded-xl px-4 py-3 text-left text-sm font-semibold text-slate-700 transition hover:bg-teal-50 hover:text-teal-700"
+      >
+        Reviewed
+      </button>
+
+      <button
+        type="button"
+        onClick={() => {
+          setReviewStatus("approved");
+          fetchDashboard(search, "approved");
+          setMobileMenuOpen(false);
+        }}
+        className="w-full rounded-xl px-4 py-3 text-left text-sm font-semibold text-slate-700 transition hover:bg-teal-50 hover:text-teal-700"
+      >
+        Approved
+      </button>
+    </nav>
+  </div>
+)}
 
         <main className="px-5 py-8 sm:px-8">
           {/* Welcome */}
@@ -1455,7 +1591,8 @@ export default function DoctorDashboard() {
             </div>
           </div>
         </div>
-      )}
+            )}
     </div>
+  </>
   );
 }
