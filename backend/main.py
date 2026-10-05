@@ -13,7 +13,7 @@ from routers.allergies import router as allergies_router
 from routers.conversation import router as conversation_router
 from routers.ai import router as ai_router
 from routers.doctor import router as doctor_router
-
+from routers.admin import router as admin_router
 
 app = FastAPI(
     title="ClinicBot API",
@@ -49,7 +49,7 @@ app.include_router(allergies_router)
 app.include_router(conversation_router)
 app.include_router(ai_router)
 app.include_router(doctor_router)
-
+app.include_router(admin_router)
 
 @app.get("/")
 def root():
