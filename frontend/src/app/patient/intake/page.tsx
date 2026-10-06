@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 type QuestionResponse = {
@@ -75,7 +75,6 @@ export default function PatientIntakePage() {
   const [question, setQuestion] = useState(
     "Loading your intake session..."
   );
-  const [field, setField] = useState("");
 
   const [answer, setAnswer] = useState("");
 
@@ -95,120 +94,136 @@ export default function PatientIntakePage() {
       return;
     }
 
-    setToken(storedToken);
+    const timer = window.setTimeout(() => {
+      setToken(storedToken);
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
   }, [router]);
+
+  const getNextQuestion = useCallback(
+    async (
+      accessToken: string,
+      currentSessionId: number
+    ) => {
+      try {
+        setError("");
+
+        const response = await fetch(
+          `${API_BASE_URL}/conversation/sessions/${currentSessionId}/next-question`,
+          {
+            method: "GET",
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+            },
+          }
+        );
+
+        const data = (await readApiResponse(
+          response
+        )) as QuestionResponse | null;
+
+        if (!response.ok) {
+          throw new Error(
+            getErrorMessage(
+              data as ApiResponse | null,
+              "Unable to load the next question."
+            )
+          );
+        }
+
+        if (!data?.question || !data?.field) {
+          throw new Error(
+            "The server returned an invalid question."
+          );
+        }
+
+        setQuestion(data.question);
+
+        const currentProgress =
+          progressMap[data.field] ?? 0;
+
+        setProgress(currentProgress);
+
+        if (data.field === "complete") {
+          setCompleted(true);
+          setProgress(100);
+        }
+      } catch (err) {
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Unable to load the next question."
+        );
+      }
+    },
+    []
+  );
+
+  const createSession = useCallback(
+    async (accessToken: string) => {
+      try {
+        setLoading(true);
+        setError("");
+
+        const response = await fetch(
+          `${API_BASE_URL}/intake/sessions`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+            },
+          }
+        );
+
+        const data = await readApiResponse(response);
+
+        if (!response.ok) {
+          throw new Error(
+            getErrorMessage(
+              data,
+              "Unable to create your intake session."
+            )
+          );
+        }
+
+        if (!data?.id) {
+          throw new Error(
+            "The server did not return a valid intake session."
+          );
+        }
+
+        setSessionId(data.id);
+
+        await getNextQuestion(accessToken, data.id);
+      } catch (err) {
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Something went wrong while starting your intake."
+        );
+      } finally {
+        setLoading(false);
+      }
+    },
+    [getNextQuestion]
+  );
 
   useEffect(() => {
     if (!token) {
       return;
     }
 
-    createSession(token);
-  }, [token]);
+    const timer = window.setTimeout(() => {
+      createSession(token);
+    }, 0);
 
-  async function createSession(accessToken: string) {
-    try {
-      setLoading(true);
-      setError("");
-
-      const response = await fetch(
-        `${API_BASE_URL}/intake/sessions`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-          },
-        }
-      );
-
-      const data = await readApiResponse(response);
-
-      if (!response.ok) {
-        throw new Error(
-          getErrorMessage(
-            data,
-            "Unable to create your intake session."
-          )
-        );
-      }
-
-      if (!data?.id) {
-        throw new Error(
-          "The server did not return a valid intake session."
-        );
-      }
-
-      setSessionId(data.id);
-
-      await getNextQuestion(accessToken, data.id);
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Something went wrong while starting your intake."
-      );
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function getNextQuestion(
-    accessToken: string,
-    currentSessionId: number
-  ) {
-    try {
-      setError("");
-
-      const response = await fetch(
-        `${API_BASE_URL}/conversation/sessions/${currentSessionId}/next-question`,
-        {
-          method: "GET",
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-          },
-        }
-      );
-
-      const data = (await readApiResponse(
-        response
-      )) as QuestionResponse | null;
-
-      if (!response.ok) {
-        throw new Error(
-          getErrorMessage(
-            data as ApiResponse | null,
-            "Unable to load the next question."
-          )
-        );
-      }
-
-      if (!data?.question || !data?.field) {
-        throw new Error(
-          "The server returned an invalid question."
-        );
-      }
-
-      setQuestion(data.question);
-      setField(data.field);
-
-      const currentProgress =
-        progressMap[data.field] ?? 0;
-
-      setProgress(currentProgress);
-
-      if (data.field === "complete") {
-        setCompleted(true);
-        setProgress(100);
-      }
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Unable to load the next question."
-      );
-    }
-  }
-
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [token, createSession]);
   async function submitAnswer(event: FormEvent) {
     event.preventDefault();
 

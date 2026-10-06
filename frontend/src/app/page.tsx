@@ -184,7 +184,13 @@ export default function DoctorDashboard() {
   }
 
   useEffect(() => {
-    fetchDashboard("", "");
+    const timer = window.setTimeout(() => {
+      fetchDashboard("", "");
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
