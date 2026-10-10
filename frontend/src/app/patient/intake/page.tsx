@@ -125,18 +125,33 @@ export default function PatientIntakePage() {
   // and React development effect replay.
   const sessionStartRef = useRef(false);
 
-  // Restore the patient's login token.
+    // Restore the patient's login token.
   useEffect(() => {
-    const storedToken = localStorage.getItem(
-      "patient_access_token"
-    );
+    let cancelled = false;
 
-    if (!storedToken) {
-      router.replace("/patient/login");
-      return;
-    }
+    const restoreToken = async () => {
+      const storedToken = localStorage.getItem(
+        "patient_access_token"
+      );
 
-    setToken(storedToken);
+      if (!storedToken) {
+        router.replace("/patient/login");
+        return;
+      }
+
+      // Defer the state update until after the effect's synchronous work.
+      await Promise.resolve();
+
+      if (!cancelled) {
+        setToken(storedToken);
+      }
+    };
+
+    void restoreToken();
+
+    return () => {
+      cancelled = true;
+    };
   }, [router]);
 
   // Load or generate the clinical summary for this session.
