@@ -1,0 +1,14 @@
+
+# Local database backups
+backend/clinicbot_backup_*.dump
+
+# Temporary frontend backups
+frontend/src/app/*.backup.tsx
+frontend/src/app/*.step1-backup.tsx
+
+# Local database backups
+backend/clinicbot_backup_*.dump
+
+# Temporary frontend backups
+frontend/src/app/**/*.backup.tsx
+frontend/src/app/**/*.step1-backup.tsx

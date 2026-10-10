@@ -1,4 +1,6 @@
 
+import re
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -10,7 +12,7 @@ from models import (
     MedicalHistory,
     Medication,
     Allergy,
-    ClinicalSummary
+    ClinicalSummary,
 )
 from dependencies import get_current_user
 from schemas import ClinicalSummaryReview
@@ -19,8 +21,91 @@ from services.gemini_service import generate_soap_summary
 
 router = APIRouter(
     prefix="/ai",
-    tags=["AI Summary"]
+    tags=["AI Summary"],
 )
+
+
+def clean_soap_summary(summary: str) -> str:
+    """
+    Clean common escaped Markdown formatting returned by Gemini.
+    Preserve the SOAP content rather than changing its meaning.
+    """
+    if not summary:
+        return ""
+
+    summary = summary.strip()
+
+    # Convert escaped Markdown bold markers to normal Markdown.
+    summary = summary.replace(r"\*\*", "**")
+    summary = summary.replace(r"\*", "*")
+    summary = summary.replace(r"\_", "_")
+
+    # Remove unnecessary whitespace.
+    summary = re.sub(r"[ \t]+\n", "\n", summary)
+    summary = re.sub(r"\n{3,}", "\n\n", summary)
+
+    return summary.strip()
+
+
+def get_patient_session(
+    session_id: int,
+    current_user: User,
+    db: Session,
+):
+    """Find a session belonging to the logged-in patient."""
+    session = (
+        db.query(IntakeSession)
+        .join(IntakeSession.patient)
+        .filter(
+            IntakeSession.id == session_id,
+            IntakeSession.patient.has(
+                user_id=current_user.id
+            ),
+        )
+        .first()
+    )
+
+    if not session:
+        raise HTTPException(
+            status_code=404,
+            detail="Intake session not found",
+        )
+
+    return session
+
+
+def get_saved_summary(
+    session_id: int,
+    db: Session,
+):
+    """Find the saved summary for a session."""
+    summary = (
+        db.query(ClinicalSummary)
+        .filter(
+            ClinicalSummary.intake_session_id == session_id
+        )
+        .first()
+    )
+
+    if not summary:
+        raise HTTPException(
+            status_code=404,
+            detail="Clinical summary not found",
+        )
+
+    return summary
+
+
+def summary_response(session_id: int, summary: ClinicalSummary):
+    return {
+        "session_id": session_id,
+        "summary_id": summary.id,
+        "review_status": summary.review_status,
+        "summary": summary.summary,
+        "doctor_notes": summary.doctor_notes,
+        "created_at": summary.created_at,
+        "updated_at": summary.updated_at,
+    }
 
 
 # ============================================================
@@ -31,31 +116,13 @@ router = APIRouter(
 def generate_session_summary(
     session_id: int,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
-    # Find the intake session and make sure it belongs
-    # to the currently logged-in user
-    session = (
-        db.query(IntakeSession)
-        .join(IntakeSession.patient)
-        .filter(
-            IntakeSession.id == session_id,
-            IntakeSession.patient.has(
-                user_id=current_user.id
-            )
-        )
-        .first()
+    session = get_patient_session(
+        session_id,
+        current_user,
+        db,
     )
-
-    if not session:
-        raise HTTPException(
-            status_code=404,
-            detail="Intake session not found"
-        )
-
-    # --------------------------------------------------------
-    # Get symptoms
-    # --------------------------------------------------------
 
     symptoms = (
         db.query(Symptom)
@@ -65,10 +132,6 @@ def generate_session_summary(
         .all()
     )
 
-    # --------------------------------------------------------
-    # Get medical history
-    # --------------------------------------------------------
-
     medical_history = (
         db.query(MedicalHistory)
         .filter(
@@ -76,10 +139,6 @@ def generate_session_summary(
         )
         .all()
     )
-
-    # --------------------------------------------------------
-    # Get medications
-    # --------------------------------------------------------
 
     medications = (
         db.query(Medication)
@@ -89,10 +148,6 @@ def generate_session_summary(
         .all()
     )
 
-    # --------------------------------------------------------
-    # Get allergies
-    # --------------------------------------------------------
-
     allergies = (
         db.query(Allergy)
         .filter(
@@ -101,34 +156,45 @@ def generate_session_summary(
         .all()
     )
 
-    # --------------------------------------------------------
-    # Generate SOAP summary using Gemini
-    # --------------------------------------------------------
+    try:
+        raw_summary = generate_soap_summary(
+            chief_complaint=(
+                session.chief_complaint or "Not provided"
+            ),
+            symptom_duration=(
+                session.symptom_duration or "Not provided"
+            ),
+            symptoms=[
+                item.symptom_name for item in symptoms
+            ],
+            medical_history=[
+                item.condition_name
+                for item in medical_history
+            ],
+            medications=[
+                item.medication_name
+                for item in medications
+            ],
+            allergies=[
+                item.allergen for item in allergies
+            ],
+        )
 
-    summary = generate_soap_summary(
-        chief_complaint=session.chief_complaint or "Not provided",
-        symptom_duration=session.symptom_duration or "Not provided",
-        symptoms=[
-            item.symptom_name
-            for item in symptoms
-        ],
-        medical_history=[
-            item.condition_name
-            for item in medical_history
-        ],
-        medications=[
-            item.medication_name
-            for item in medications
-        ],
-        allergies=[
-            item.allergen
-            for item in allergies
-        ]
-    )
+        summary = clean_soap_summary(raw_summary)
 
-    # --------------------------------------------------------
-    # Check if summary already exists
-    # --------------------------------------------------------
+        if not summary:
+            raise HTTPException(
+                status_code=502,
+                detail="The AI service returned an empty summary.",
+            )
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="Unable to generate the clinical summary. Please try again.",
+        ) from exc
 
     clinical_summary = (
         db.query(ClinicalSummary)
@@ -138,40 +204,29 @@ def generate_session_summary(
         .first()
     )
 
-    # --------------------------------------------------------
-    # Update existing summary
-    # --------------------------------------------------------
-
     if clinical_summary:
+        # Update the text without silently resetting an existing
+        # doctor's review status or doctor's notes.
         clinical_summary.summary = summary
-        clinical_summary.review_status = "pending"
-
-    # --------------------------------------------------------
-    # Create new summary
-    # --------------------------------------------------------
-
     else:
         clinical_summary = ClinicalSummary(
             intake_session_id=session_id,
             summary=summary,
-            review_status="pending"
+            review_status="pending",
         )
-
         db.add(clinical_summary)
 
-    # --------------------------------------------------------
-    # Save to database
-    # --------------------------------------------------------
+    try:
+        db.commit()
+        db.refresh(clinical_summary)
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail="Unable to save the clinical summary.",
+        ) from exc
 
-    db.commit()
-    db.refresh(clinical_summary)
-
-    return {
-        "session_id": session_id,
-        "summary_id": clinical_summary.id,
-        "review_status": clinical_summary.review_status,
-        "summary": clinical_summary.summary
-    }
+    return summary_response(session_id, clinical_summary)
 
 
 # ============================================================
@@ -182,55 +237,42 @@ def generate_session_summary(
 def get_saved_session_summary(
     session_id: int,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
-    # Find the intake session and verify ownership
-    session = (
-        db.query(IntakeSession)
-        .join(IntakeSession.patient)
-        .filter(
-            IntakeSession.id == session_id,
-            IntakeSession.patient.has(
-                user_id=current_user.id
-            )
-        )
-        .first()
+    get_patient_session(
+        session_id,
+        current_user,
+        db,
     )
 
-    if not session:
-        raise HTTPException(
-            status_code=404,
-            detail="Intake session not found"
-        )
-
-    # Find saved clinical summary
-    clinical_summary = (
-        db.query(ClinicalSummary)
-        .filter(
-            ClinicalSummary.intake_session_id == session_id
-        )
-        .first()
+    clinical_summary = get_saved_summary(
+        session_id,
+        db,
     )
 
-    if not clinical_summary:
-        raise HTTPException(
-            status_code=404,
-            detail="Clinical summary not found"
-        )
+    # Clean legacy formatting when returning previously saved data.
+    cleaned_summary = clean_soap_summary(
+        clinical_summary.summary or ""
+    )
 
-    return {
-        "session_id": session_id,
-        "summary_id": clinical_summary.id,
-        "review_status": clinical_summary.review_status,
-        "summary": clinical_summary.summary,
-        "doctor_notes": clinical_summary.doctor_notes,
-        "created_at": clinical_summary.created_at,
-        "updated_at": clinical_summary.updated_at
-    }
+    if cleaned_summary != clinical_summary.summary:
+        clinical_summary.summary = cleaned_summary
+
+        try:
+            db.commit()
+            db.refresh(clinical_summary)
+        except Exception as exc:
+            db.rollback()
+            raise HTTPException(
+                status_code=500,
+                detail="Unable to update clinical summary formatting.",
+            ) from exc
+
+    return summary_response(session_id, clinical_summary)
 
 
 # ============================================================
-# PUT: Doctor Review / Update Summary
+# PUT: Update Clinical Summary Review
 # ============================================================
 
 @router.put("/sessions/{session_id}/soap-summary/review")
@@ -238,89 +280,48 @@ def review_session_summary(
     session_id: int,
     review_data: ClinicalSummaryReview,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
-    # --------------------------------------------------------
-    # Verify that the intake session exists
-    # and belongs to the logged-in user
-    # --------------------------------------------------------
-
-    session = (
-        db.query(IntakeSession)
-        .join(IntakeSession.patient)
-        .filter(
-            IntakeSession.id == session_id,
-            IntakeSession.patient.has(
-                user_id=current_user.id
-            )
-        )
-        .first()
+    # This endpoint retains the patient-ownership check from your
+    # original code. Use the existing doctor-specific review
+    # endpoint for doctor accounts.
+    get_patient_session(
+        session_id,
+        current_user,
+        db,
     )
 
-    if not session:
-        raise HTTPException(
-            status_code=404,
-            detail="Intake session not found"
-        )
-
-    # --------------------------------------------------------
-    # Find the saved clinical summary
-    # --------------------------------------------------------
-
-    clinical_summary = (
-        db.query(ClinicalSummary)
-        .filter(
-            ClinicalSummary.intake_session_id == session_id
-        )
-        .first()
+    clinical_summary = get_saved_summary(
+        session_id,
+        db,
     )
 
-    if not clinical_summary:
-        raise HTTPException(
-            status_code=404,
-            detail="Clinical summary not found"
-        )
-
-    # --------------------------------------------------------
-    # Validate review status
-    # --------------------------------------------------------
-
-    allowed_statuses = [
+    allowed_statuses = {
         "pending",
         "reviewed",
-        "approved"
-    ]
+        "approved",
+    }
 
     if review_data.review_status not in allowed_statuses:
         raise HTTPException(
             status_code=400,
             detail=(
-                "Invalid review status. "
-                "Allowed values: pending, reviewed, approved"
-            )
+                "Invalid review status. Allowed values: "
+                "pending, reviewed, approved"
+            ),
         )
-
-    # --------------------------------------------------------
-    # Update review information
-    # --------------------------------------------------------
 
     clinical_summary.review_status = review_data.review_status
     clinical_summary.doctor_notes = review_data.doctor_notes
 
-    # --------------------------------------------------------
-    # Save changes
-    # --------------------------------------------------------
+    try:
+        db.commit()
+        db.refresh(clinical_summary)
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail="Unable to save the review.",
+        ) from exc
 
-    db.commit()
-    db.refresh(clinical_summary)
-
-    return {
-        "session_id": session_id,
-        "summary_id": clinical_summary.id,
-        "review_status": clinical_summary.review_status,
-        "summary": clinical_summary.summary,
-        "doctor_notes": clinical_summary.doctor_notes,
-        "created_at": clinical_summary.created_at,
-        "updated_at": clinical_summary.updated_at
-    }
-
+    return summary_response(session_id, clinical_summary)

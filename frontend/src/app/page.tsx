@@ -108,6 +108,8 @@ export default function DoctorDashboard() {
 
   const [selectedSession, setSelectedSession] =
     useState<Session | null>(null);
+  const [selectedPatient, setSelectedPatient] =
+    useState<Patient | null>(null);
 
   const [reviewNotes, setReviewNotes] = useState("");
   const [reviewStatusValue, setReviewStatusValue] =
@@ -117,6 +119,7 @@ export default function DoctorDashboard() {
   const [reviewMessage, setReviewMessage] = useState("");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [showSuccessToast, setShowSuccessToast] = useState(false);
+  const [darkMode, setDarkMode] = useState(false);
 
   async function fetchDashboard(
     searchValue = search,
@@ -227,6 +230,13 @@ export default function DoctorDashboard() {
     setReviewMessage("");
     setReviewNotes("");
   }
+  function openPatientHistory(patient: Patient) {
+  setSelectedPatient(patient);
+}
+
+  function closePatientHistory() {
+  setSelectedPatient(null);
+}
 
   async function saveReview() {
     if (!selectedSession) return;
@@ -237,6 +247,7 @@ export default function DoctorDashboard() {
       router.push("/login");
       return;
     }
+
 
     setSavingReview(true);
     setReviewMessage("");
@@ -319,6 +330,42 @@ export default function DoctorDashboard() {
         return "border-slate-200 bg-slate-100 text-slate-600";
     }
   }
+  function getCommonComplaints(sessions: Session[]) {
+  const complaintCounts: Record<string, number> = {};
+
+  sessions.forEach((session) => {
+    const complaint =
+      session.intake_session.chief_complaint?.trim();
+
+    if (!complaint) {
+      return;
+    }
+
+    const normalizedComplaint =
+      complaint.charAt(0).toUpperCase() +
+      complaint.slice(1);
+
+    complaintCounts[normalizedComplaint] =
+      (complaintCounts[normalizedComplaint] || 0) + 1;
+  });
+
+  return Object.entries(complaintCounts)
+    .sort(([, countA], [, countB]) => countB - countA)
+    .slice(0, 5);
+}function getReviewActivity(sessions: Session[]) {
+  return sessions
+    .filter((session) => session.clinical_summary)
+    .sort(
+      (a, b) =>
+        new Date(
+          b.clinical_summary?.updated_at || ""
+        ).getTime() -
+        new Date(
+          a.clinical_summary?.updated_at || ""
+        ).getTime()
+    )
+    .slice(0, 5);
+}
 
   function getInitials(name: string) {
     return name
@@ -515,9 +562,21 @@ export default function DoctorDashboard() {
       </div>
     )}
 
-    <div className="min-h-screen bg-slate-50 text-slate-900">
+    <div
+  className={`min-h-screen transition-colors duration-300 ${
+    darkMode
+      ? "bg-[#252827] text-[#F5F0E6]"
+      : "bg-[#F5F0E6] text-[#303735]"
+  }`}
+>
       {/* Sidebar */}
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 border-r border-slate-800 bg-slate-950 lg:flex lg:flex-col">
+      <aside
+  className={`fixed inset-y-0 left-0 z-30 hidden w-64 border-r transition-colors duration-300 lg:flex lg:flex-col ${
+    darkMode
+      ? "border-slate-700 bg-[#202523]"
+      : "border-[#DED8CA] bg-[#EDE6D8]"
+  }`}
+>
         <div className="flex h-20 items-center border-b border-slate-800 px-6">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-teal-400 text-lg font-bold text-slate-950">
             C
@@ -555,7 +614,11 @@ export default function DoctorDashboard() {
               setReviewStatus("pending");
               fetchDashboard(search, "pending");
             }}
-            className="mt-2 flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium text-slate-400 transition hover:bg-slate-900 hover:text-white"
+            className={`mt-2 flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition-all duration-200 hover:translate-x-1 hover:shadow-sm ${
+  darkMode
+    ? "text-slate-300 hover:bg-teal-900/40 hover:text-teal-200"
+    : "text-[#525B56] hover:bg-[#D8E9E3] hover:text-[#0F766E]"
+}`}
           >
             <span className="text-lg">◷</span>
             Pending Reviews
@@ -620,13 +683,22 @@ export default function DoctorDashboard() {
         <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 backdrop-blur">
           <div className="flex h-20 items-center justify-between px-5 sm:px-8">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wider text-teal-600">
-                Doctor Portal
-              </p>
+              <div>
+  <p className="text-sm font-medium text-slate-500">
+    Welcome back, Doctor
+  </p>
 
-              <h2 className="mt-1 text-xl font-bold text-slate-900">
-                Clinical Dashboard
-              </h2>
+  <h2 className="mt-1 text-2xl font-bold tracking-tight text-slate-900">
+    Good to see you,{" "}
+    <span className="text-teal-600">
+      {dashboard?.doctor.name || "Doctor"}
+    </span>
+  </h2>
+
+  <p className="mt-1 text-sm text-slate-500">
+    Review patient intake information and AI-assisted clinical summaries.
+  </p>
+</div>
             </div>
 
             <div className="flex items-center gap-4">
@@ -734,7 +806,11 @@ export default function DoctorDashboard() {
   </div>
 )}
 
-        <main className="px-5 py-8 sm:px-8">
+        <main
+  className={`px-5 py-8 transition-colors duration-300 sm:px-8 ${
+    darkMode ? "text-[#F5F0E6]" : "text-[#303735]"
+  }`}
+>
           {/* Welcome */}
           <div className="mb-8">
             <p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-teal-600">
@@ -761,275 +837,400 @@ export default function DoctorDashboard() {
                 {error}
               </p>
             </div>
-          )}
+          )}{/* Dashboard Overview */}
+<div className="mb-8 grid gap-6 xl:grid-cols-2">
+  {/* Common Complaints */}
+  <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+    <div className="flex items-center justify-between">
+      <div>
+        <h3 className="text-base font-bold text-slate-900">
+          Common Complaints
+        </h3>
+        <p className="mt-1 text-xs text-slate-500">
+          Most reported patient complaints
+        </p>
+      </div>
 
-          {/* Statistics */}
-          <div className="mb-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <p className="text-sm font-medium text-slate-500">
-                Total Sessions
-              </p>
+      <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-teal-50 text-teal-700">
+        <span className="text-sm">▥</span>
+      </div>
+    </div>
 
-              <p className="mt-3 text-3xl font-bold text-slate-900">
-                {dashboard?.statistics.total_sessions ?? 0}
-              </p>
+    <div className="mt-5 space-y-4">
+      {getCommonComplaints(dashboard?.sessions ?? []).length > 0 ? (
+        getCommonComplaints(dashboard?.sessions ?? []).map(
+          ([complaint, count]) => (
+            <div
+              key={complaint}
+              className="flex items-center justify-between gap-4"
+            >
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-semibold text-slate-800">
+                  {complaint}
+                </p>
 
-              <p className="mt-2 text-xs text-slate-400">
-                Patient intake sessions
-              </p>
-            </div>
-
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <p className="text-sm font-medium text-slate-500">
-                Pending Reviews
-              </p>
-
-              <p className="mt-3 text-3xl font-bold text-amber-600">
-                {dashboard?.statistics.pending_reviews ?? 0}
-              </p>
-
-              <p className="mt-2 text-xs text-slate-400">
-                Awaiting doctor review
-              </p>
-            </div>
-
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <p className="text-sm font-medium text-slate-500">
-                Reviewed
-              </p>
-
-              <p className="mt-3 text-3xl font-bold text-blue-600">
-                {dashboard?.statistics.reviewed_summaries ?? 0}
-              </p>
-
-              <p className="mt-2 text-xs text-slate-400">
-                Clinically reviewed
-              </p>
-            </div>
-
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <p className="text-sm font-medium text-slate-500">
-                Approved
-              </p>
-
-              <p className="mt-3 text-3xl font-bold text-emerald-600">
-                {dashboard?.statistics.approved_summaries ?? 0}
-              </p>
-
-              <p className="mt-2 text-xs text-slate-400">
-                Ready for consultation
-              </p>
-            </div>
-          </div>
-
-          {/* Sessions */}
-          <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-            <div className="border-b border-slate-200 px-5 py-5 sm:px-6">
-              <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
-                <div>
-                  <h2 className="text-lg font-bold text-slate-900">
-                    Patient Intake Sessions
-                  </h2>
-
-                  <p className="mt-1 text-sm text-slate-500">
-                    Select a patient to open the clinical
-                    review workspace.
-                  </p>
+                <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+                  <div
+                    className="h-full rounded-full bg-teal-500"
+                    style={{
+                      width: `${Math.min(
+                        100,
+                        (count * 100) /
+                          Math.max(
+                            1,
+                            getCommonComplaints(
+                              dashboard?.sessions ?? []
+                            )[0]?.[1] ?? 1
+                          )
+                      )}%`,
+                    }}
+                  />
                 </div>
+              </div>
 
-                <div className="flex flex-col gap-3 sm:flex-row">
-                  <form
-                    onSubmit={handleSearch}
-                    className="relative"
-                  >
-                    <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400">
-                      ⌕
-                    </span>
+              <span className="shrink-0 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-600">
+                {count}
+              </span>
+            </div>
+          )
+        )
+      ) : (
+        <div className="rounded-xl bg-slate-50 p-5 text-center">
+          <p className="text-sm font-medium text-slate-500">
+            No complaint data available
+          </p>
+        </div>
+      )}
+    </div>
+  </section>
 
-                    <input
-                      value={search}
-                      onChange={(event) =>
-                        setSearch(event.target.value)
+  {/* Review Activity */}
+  <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+    <div className="flex items-center justify-between">
+      <div>
+        <h3 className="text-base font-bold text-slate-900">
+          Review Activity
+        </h3>
+        <p className="mt-1 text-xs text-slate-500">
+          Latest clinical summary updates
+        </p>
+      </div>
+
+      <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-50 text-blue-700">
+        <span className="text-sm">◷</span>
+      </div>
+    </div>
+
+    <div className="mt-5 space-y-3">
+      {getReviewActivity(dashboard?.sessions ?? []).length > 0 ? (
+        getReviewActivity(dashboard?.sessions ?? []).map((session) => {
+          const summary = session.clinical_summary;
+
+          return (
+            <div
+              key={session.intake_session.session_id}
+              className="flex items-center justify-between gap-4 rounded-xl border border-slate-100 bg-slate-50/70 px-4 py-3"
+            >
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold text-slate-800">
+                  {session.patient.full_name}
+                </p>
+
+                <p className="mt-1 truncate text-xs text-slate-500">
+                  Session #{session.intake_session.session_id}
+                  {" · "}
+                  {summary?.updated_at
+                    ? new Date(summary.updated_at).toLocaleDateString()
+                    : "Recently updated"}
+                </p>
+              </div>
+
+              <span
+                className={`shrink-0 rounded-full border px-2.5 py-1 text-xs font-bold capitalize ${getStatusStyle(
+                  summary?.review_status
+                )}`}
+              >
+                {summary?.review_status || "pending"}
+              </span>
+            </div>
+          );
+        })
+      ) : (
+        <div className="rounded-xl bg-slate-50 p-5 text-center">
+          <p className="text-sm font-medium text-slate-500">
+            No review activity yet
+          </p>
+        </div>
+      )}
+    </div>
+  </section>
+</div>
+
+
+{/* Sessions */}
+
+<section
+  className={`overflow-hidden rounded-2xl border shadow-sm transition-colors duration-300 ${
+    darkMode
+      ? "border-slate-700 bg-[#303735]"
+      : "border-[#E4DED2] bg-white"
+  }`}
+>
+
+  {/* Section Header */}
+<div
+  className={`border-b px-5 py-5 transition-colors duration-300 sm:px-6 ${
+    darkMode ? "border-slate-700" : "border-[#E4DED2]"
+  }`}
+>
+
+    <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
+      <div>
+        <div className="flex items-center gap-2">
+          <h2 className="text-lg font-bold text-slate-900">
+            Patient Intake Sessions
+          </h2>
+
+          <span className="rounded-full bg-teal-50 px-2.5 py-1 text-xs font-bold text-teal-700">
+            {dashboard?.sessions.length ?? 0}
+          </span>
+        </div>
+
+        <p className="mt-1 text-sm text-slate-500">
+          Review patient information and AI-assisted clinical summaries.
+        </p>
+      </div>
+
+
+
+      {/* Search + Filter */}
+      <div className="flex flex-col gap-3 sm:flex-row">
+        <form
+          onSubmit={handleSearch}
+          className="relative"
+        >
+          <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400">
+            ⌕
+          </span>
+
+          <input
+            value={search}
+            onChange={(event) =>
+              setSearch(event.target.value)
+            }
+            placeholder="Search patient..."
+            className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pl-10 pr-4 text-sm text-slate-900 outline-none transition focus:border-teal-500 focus:bg-white focus:ring-4 focus:ring-teal-500/10 sm:w-64"
+          />
+        </form>
+
+        <select
+          value={reviewStatus}
+          onChange={handleStatusChange}
+          className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-medium text-slate-700 outline-none transition focus:border-teal-500 focus:bg-white focus:ring-4 focus:ring-teal-500/10"
+        >
+          <option value="">All statuses</option>
+          <option value="pending">Pending</option>
+          <option value="reviewed">Reviewed</option>
+          <option value="approved">Approved</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  {/* Loading State */}
+  {loading && (
+    <div className="flex items-center justify-center px-6 py-20">
+      <div className="text-center">
+        <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-slate-200 border-t-teal-500" />
+
+        <p className="mt-4 text-sm text-slate-500">
+          Loading patient sessions...
+        </p>
+      </div>
+    </div>
+  )}
+
+  {/* Empty State */}
+  {!loading &&
+    dashboard &&
+    dashboard.sessions.length === 0 && (
+      <div className="px-6 py-20 text-center">
+        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-xl text-slate-400">
+          ◌
+        </div>
+
+        <h3 className="mt-4 text-base font-semibold text-slate-900">
+          No sessions found
+        </h3>
+
+        <p className="mt-1 text-sm text-slate-500">
+          Try changing your search or review filter.
+        </p>
+      </div>
+    )}
+
+  {/* Sessions Table */}
+  {!loading &&
+    dashboard &&
+    dashboard.sessions.length > 0 && (
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[900px]">
+<thead
+  className={`border-b transition-colors duration-300 ${
+    darkMode
+      ? "border-slate-700 bg-[#252827]"
+      : "border-[#E4DED2] bg-[#F8F5EE]"
+  }`}
+>
+            <tr>
+              <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-slate-500">
+                Patient
+              </th>
+
+              <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-slate-500">
+                Complaint
+              </th>
+
+              <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-slate-500">
+                Duration
+              </th>
+
+              <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-slate-500">
+                Session
+              </th>
+
+              <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-slate-500">
+                Review Status
+              </th>
+
+              <th className="px-6 py-4 text-right text-xs font-bold uppercase tracking-wider text-slate-500">
+                Action
+              </th>
+            </tr>
+          </thead>
+
+          <tbody className="divide-y divide-slate-100">
+            {dashboard.sessions.map((session) => (
+              <tr
+  key={session.intake_session.session_id}
+  className={`transition-colors duration-200 ${
+    darkMode ? "hover:bg-teal-900/20" : "hover:bg-[#F3F7F4]"
+  }`}
+>
+
+{/* Patient */}
+<td className="px-6 py-5">
+  <div className="flex items-center gap-3">
+    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-teal-50 text-xs font-bold text-teal-700 ring-4 ring-teal-50/50">
+      {getInitials(session.patient.full_name)}
+    </div>
+
+    <div className="min-w-0">
+      <p
+        className={`font-semibold ${
+          darkMode ? "text-[#F5F0E6]" : "text-[#303735]"
+        }`}
+      >
+        {session.patient.full_name}
+      </p>
+
+      <p className="mt-0.5 max-w-[190px] truncate text-xs text-slate-500">
+        {session.patient.email}
+      </p>
+    </div>
+  </div>
+</td>
+
+
+
+                {/* Complaint */}
+                <td className="max-w-[230px] px-6 py-5">
+
+<p
+  className={`truncate text-sm font-medium ${
+    darkMode ? "text-[#F5F0E6]" : "text-[#303735]"
+  }`}
+>
+  {session.intake_session.chief_complaint || "Not provided"}
+</p>
+
+                </td>
+
+                {/* Duration */}
+                <td className="px-6 py-5">
+<span
+  className={`text-sm ${
+    darkMode ? "text-slate-300" : "text-[#626B66]"
+  }`}
+>
+  {session.intake_session.symptom_duration || "—"}
+</span>
+                </td>
+
+                {/* Session */}
+                <td className="px-6 py-5">
+                  <span className="inline-flex rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-600">
+                    Session #
+                    {session.intake_session.session_id}
+                  </span>
+
+                  <p className="mt-1 text-xs capitalize text-slate-400">
+                    {session.intake_session.status}
+                  </p>
+                </td>
+
+                {/* Review Status */}
+                <td className="px-6 py-5">
+                  {session.clinical_summary ? (
+                    <span
+                      className={`inline-flex rounded-lg border px-2.5 py-1 text-xs font-semibold capitalize ${getStatusStyle(
+                        session.clinical_summary
+                          .review_status
+                      )}`}
+                    >
+                      {
+                        session.clinical_summary
+                          .review_status
                       }
-                      placeholder="Search patient..."
-                      className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pl-10 pr-4 text-sm text-slate-900 outline-none transition focus:border-teal-500 focus:bg-white focus:ring-4 focus:ring-teal-500/10 sm:w-64"
-                    />
-                  </form>
+                    </span>
+                  ) : (
+                    <span className="inline-flex rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-400">
+                      No summary
+                    </span>
+                  )}
+                </td>
 
-                  <select
-                    value={reviewStatus}
-                    onChange={handleStatusChange}
-                    className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-medium text-slate-700 outline-none focus:border-teal-500 focus:ring-4 focus:ring-teal-500/10"
-                  >
-                    <option value="">All statuses</option>
-                    <option value="pending">Pending</option>
-                    <option value="reviewed">Reviewed</option>
-                    <option value="approved">Approved</option>
-                  </select>
-                </div>
-              </div>
-            </div>
+                {/* Actions */}
+                <td className="px-6 py-5 text-right">
+                  <div className="flex items-center justify-end gap-2">
+                    <button
+                      onClick={() =>
+                        openPatientHistory(
+                          session.patient
+                        )
+                      }
+                      className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-700 shadow-sm transition hover:border-teal-300 hover:bg-teal-50 hover:text-teal-700"
+                    >
+                      History
+                    </button>
 
-            {loading && (
-              <div className="flex items-center justify-center px-6 py-20">
-                <div className="text-center">
-                  <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-slate-200 border-t-teal-500" />
-
-                  <p className="mt-4 text-sm text-slate-500">
-                    Loading patient sessions...
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {!loading &&
-              dashboard &&
-              dashboard.sessions.length === 0 && (
-                <div className="px-6 py-20 text-center">
-                  <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-xl text-slate-400">
-                    ◌
+                    <button
+                      onClick={() =>
+                        openSession(session)
+                      }
+                      className="rounded-xl bg-slate-900 px-4 py-2 text-xs font-bold text-white shadow-sm transition hover:bg-teal-700"
+                    >
+                      Review
+                    </button>
                   </div>
-
-                  <h3 className="mt-4 text-base font-semibold text-slate-900">
-                    No sessions found
-                  </h3>
-
-                  <p className="mt-1 text-sm text-slate-500">
-                    Try changing your search or review filter.
-                  </p>
-                </div>
-              )}
-
-            {!loading &&
-              dashboard &&
-              dashboard.sessions.length > 0 && (
-                <div className="overflow-x-auto">
-                  <table className="w-full min-w-[850px]">
-                    <thead className="border-b border-slate-200 bg-slate-50/80">
-                      <tr>
-                        <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-slate-500">
-                          Patient
-                        </th>
-
-                        <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-slate-500">
-                          Complaint
-                        </th>
-
-                        <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-slate-500">
-                          Duration
-                        </th>
-
-                        <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-slate-500">
-                          Session
-                        </th>
-
-                        <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-slate-500">
-                          Review
-                        </th>
-
-                        <th className="px-6 py-4 text-right text-xs font-bold uppercase tracking-wider text-slate-500">
-                          Action
-                        </th>
-                      </tr>
-                    </thead>
-
-                    <tbody className="divide-y divide-slate-100">
-                      {dashboard.sessions.map((session) => (
-                        <tr
-                          key={
-                            session.intake_session.session_id
-                          }
-                          className="transition hover:bg-slate-50"
-                        >
-                          <td className="px-6 py-5">
-                            <div className="flex items-center gap-3">
-                              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-teal-50 text-xs font-bold text-teal-700">
-                                {getInitials(
-                                  session.patient.full_name
-                                )}
-                              </div>
-
-                              <div className="min-w-0">
-                                <p className="font-semibold text-slate-900">
-                                  {session.patient.full_name}
-                                </p>
-
-                                <p className="mt-0.5 max-w-[190px] truncate text-xs text-slate-500">
-                                  {session.patient.email}
-                                </p>
-                              </div>
-                            </div>
-                          </td>
-
-                          <td className="max-w-[230px] px-6 py-5">
-                            <p className="truncate text-sm font-medium text-slate-800">
-                              {session.intake_session
-                                .chief_complaint ||
-                                "Not provided"}
-                            </p>
-                          </td>
-
-                          <td className="px-6 py-5">
-                            <span className="text-sm text-slate-600">
-                              {session.intake_session
-                                .symptom_duration || "—"}
-                            </span>
-                          </td>
-
-                          <td className="px-6 py-5">
-                            <span className="inline-flex rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-600">
-                              #
-                              {
-                                session.intake_session
-                                  .session_id
-                              }
-                            </span>
-
-                            <p className="mt-1 text-xs capitalize text-slate-400">
-                              {
-                                session.intake_session
-                                  .status
-                              }
-                            </p>
-                          </td>
-
-                          <td className="px-6 py-5">
-                            {session.clinical_summary ? (
-                              <span
-                                className={`inline-flex rounded-lg border px-2.5 py-1 text-xs font-semibold capitalize ${getStatusStyle(
-                                  session.clinical_summary
-                                    .review_status
-                                )}`}
-                              >
-                                {
-                                  session.clinical_summary
-                                    .review_status
-                                }
-                              </span>
-                            ) : (
-                              <span className="inline-flex rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-400">
-                                No summary
-                              </span>
-                            )}
-                          </td>
-
-                          <td className="px-6 py-5 text-right">
-                            <button
-                              onClick={() =>
-                                openSession(session)
-                              }
-                              className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-700 shadow-sm transition hover:border-teal-300 hover:bg-teal-50 hover:text-teal-700"
-                            >
-                              Review
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-          </section>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    )}
+</section>
 
           <button
             onClick={() =>
@@ -1039,7 +1240,15 @@ export default function DoctorDashboard() {
           >
             ↻ Refresh Dashboard
           </button>
-
+<button
+  type="button"
+  onClick={() => setDarkMode((current) => !current)}
+  className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-teal-300 hover:bg-teal-50 hover:text-teal-700 hover:shadow-md"
+  title={darkMode ? "Switch to light mode" : "Switch to night mode"}
+  aria-label={darkMode ? "Switch to light mode" : "Switch to night mode"}
+>
+  {darkMode ? "☀ Light" : "☾ Night"}
+</button>
           <footer className="mt-8 pb-4 text-center">
             <p className="text-xs text-slate-400">
               ClinicBot · AI-assisted clinical documentation
@@ -1051,7 +1260,192 @@ export default function DoctorDashboard() {
           </footer>
         </main>
       </div>
+{/* Patient Session History Modal */}
+{selectedPatient && (
+  <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/60 px-3 py-4 backdrop-blur-sm sm:px-6 sm:py-8">
+    <div className="mx-auto max-w-5xl">
+      <div className="overflow-hidden rounded-3xl bg-white shadow-2xl">
 
+        {/* Modal Header */}
+        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-5 sm:px-7">
+          <div>
+            <h2 className="text-xl font-bold text-slate-900">
+              Patient Session History
+            </h2>
+
+            <p className="mt-1 text-sm text-slate-500">
+              {selectedPatient.full_name}
+            </p>
+          </div>
+
+          <button
+            onClick={closePatientHistory}
+            className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50"
+          >
+            Close
+          </button>
+        </div>
+
+        {/* Patient Overview */}
+        <div className="grid gap-4 border-b border-slate-200 bg-slate-50 px-5 py-5 sm:grid-cols-4 sm:px-7">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+              Patient
+            </p>
+            <p className="mt-1 font-semibold text-slate-800">
+              {selectedPatient.full_name}
+            </p>
+          </div>
+
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+              Age
+            </p>
+            <p className="mt-1 font-semibold text-slate-800">
+              {selectedPatient.age ?? "Not provided"}
+            </p>
+          </div>
+
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+              Gender
+            </p>
+            <p className="mt-1 font-semibold capitalize text-slate-800">
+              {selectedPatient.gender || "Not provided"}
+            </p>
+          </div>
+
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+              Phone
+            </p>
+            <p className="mt-1 font-semibold text-slate-800">
+              {selectedPatient.phone || "Not provided"}
+            </p>
+          </div>
+        </div>
+
+        {/* Session History */}
+        <div className="px-5 py-6 sm:px-7">
+          <div className="mb-5">
+            <h3 className="text-lg font-bold text-slate-900">
+              Previous Intake Sessions
+            </h3>
+
+            <p className="mt-1 text-sm text-slate-500">
+              Review this patient&apos;s previous clinical intake records.
+            </p>
+          </div>
+
+          <div className="space-y-4">
+            {(dashboard?.sessions ?? [])
+              .filter(
+                (session) =>
+                  session.patient.patient_id === selectedPatient.patient_id
+              )
+              .map((session) => (
+                <div
+                  key={session.intake_session.session_id}
+                  className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+                >
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="rounded-lg bg-teal-50 px-2.5 py-1 text-xs font-bold text-teal-700">
+                          Session #
+                          {session.intake_session.session_id}
+                        </span>
+
+                        {session.clinical_summary && (
+                          <span
+                            className={`rounded-lg border px-2.5 py-1 text-xs font-semibold capitalize ${getStatusStyle(
+                              session.clinical_summary.review_status
+                            )}`}
+                          >
+                            {session.clinical_summary.review_status}
+                          </span>
+                        )}
+                      </div>
+
+                      <h4 className="mt-3 text-base font-bold text-slate-900">
+                        {session.intake_session.chief_complaint ||
+                          "No chief complaint provided"}
+                      </h4>
+
+                      <p className="mt-1 text-sm text-slate-500">
+                        Duration:{" "}
+                        {session.intake_session.symptom_duration ||
+                          "Not provided"}
+                      </p>
+                    </div>
+
+                    <button
+                      onClick={() => {
+                        closePatientHistory();
+                        openSession(session);
+                      }}
+                      className="rounded-xl border border-teal-200 bg-teal-50 px-4 py-2 text-xs font-bold text-teal-700 transition hover:bg-teal-100"
+                    >
+                      Open Review
+                    </button>
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                    <div className="rounded-xl bg-slate-50 p-3">
+                      <p className="text-xs text-slate-400">
+                        Symptoms
+                      </p>
+                      <p className="mt-1 text-lg font-bold text-slate-800">
+                        {session.symptoms.length}
+                      </p>
+                    </div>
+
+                    <div className="rounded-xl bg-slate-50 p-3">
+                      <p className="text-xs text-slate-400">
+                        Medical History
+                      </p>
+                      <p className="mt-1 text-lg font-bold text-slate-800">
+                        {session.medical_history.length}
+                      </p>
+                    </div>
+
+                    <div className="rounded-xl bg-slate-50 p-3">
+                      <p className="text-xs text-slate-400">
+                        Medications
+                      </p>
+                      <p className="mt-1 text-lg font-bold text-slate-800">
+                        {session.medications.length}
+                      </p>
+                    </div>
+
+                    <div className="rounded-xl bg-slate-50 p-3">
+                      <p className="text-xs text-slate-400">
+                        Allergies
+                      </p>
+                      <p className="mt-1 text-lg font-bold text-slate-800">
+                        {session.allergies.length}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+
+            {(dashboard?.sessions ?? []).filter(
+              (session) =>
+                session.patient.patient_id === selectedPatient.patient_id
+            ).length === 0 && (
+              <div className="rounded-2xl border border-dashed border-slate-300 p-8 text-center">
+                <p className="font-semibold text-slate-600">
+                  No previous sessions found.
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+)}
       {/* Clinical Review Modal */}
       {selectedSession && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/60 px-3 py-4 backdrop-blur-sm sm:px-6 sm:py-8">

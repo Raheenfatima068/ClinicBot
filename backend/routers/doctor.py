@@ -1,3 +1,4 @@
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -10,7 +11,7 @@ from models import (
     MedicalHistory,
     Medication,
     Allergy,
-    ClinicalSummary
+    ClinicalSummary,
 )
 from dependencies import get_current_user
 from schemas import ClinicalSummaryReview
@@ -18,7 +19,7 @@ from schemas import ClinicalSummaryReview
 
 router = APIRouter(
     prefix="/doctor",
-    tags=["Doctor Dashboard"]
+    tags=["Doctor Dashboard"],
 )
 
 
@@ -26,7 +27,7 @@ def require_doctor(current_user: User):
     if current_user.role != "doctor":
         raise HTTPException(
             status_code=403,
-            detail="Doctor access required"
+            detail="Doctor access required",
         )
 
     return current_user
@@ -37,65 +38,75 @@ def doctor_dashboard(
     review_status: str | None = None,
     search: str | None = None,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     require_doctor(current_user)
 
-    allowed_statuses = [
-        "pending",
-        "reviewed",
-        "approved"
-    ]
+    allowed_statuses = ["pending", "reviewed", "approved"]
 
-    if review_status is not None and review_status not in allowed_statuses:
+    if (
+        review_status is not None
+        and review_status not in allowed_statuses
+    ):
         raise HTTPException(
             status_code=400,
             detail=(
                 "Invalid review status. "
                 "Allowed values: pending, reviewed, approved"
-            )
+            ),
         )
 
+    # Normalize the search text. Empty or whitespace-only
+    # searches should display all sessions.
+    search_text = (search or "").strip().lower()
+
+    # Retrieve only sessions assigned to the logged-in doctor.
     sessions = (
         db.query(IntakeSession)
         .join(IntakeSession.patient)
         .join(PatientProfile.user)
+        .filter(
+            IntakeSession.assigned_doctor_id == current_user.id
+        )
         .all()
     )
 
     dashboard_data = []
 
-    # Dashboard statistics
     pending_reviews = 0
     reviewed_summaries = 0
     approved_summaries = 0
 
     for session in sessions:
         patient = session.patient
+
+        if patient is None or patient.user is None:
+            continue
+
         user = patient.user
 
-        # Apply patient search filter
-        if search is not None:
-            search_text = search.strip().lower()
+        # Search by patient name, email, or chief complaint.
+        patient_name = (
+            (user.full_name or "").strip().lower()
+        )
+        patient_email = (
+            (user.email or "").strip().lower()
+        )
+        complaint = (
+            (session.chief_complaint or "").strip().lower()
+        )
 
-            patient_name = (
-                user.full_name.lower()
-                if user.full_name
-                else ""
+        if search_text and not any(
+            search_text in field
+            for field in (
+                patient_name,
+                patient_email,
+                complaint,
             )
+        ):
+            continue
 
-            patient_email = (
-                user.email.lower()
-                if user.email
-                else ""
-            )
-
-            if (
-                search_text not in patient_name
-                and search_text not in patient_email
-            ):
-                continue
-
+        # Get the clinical summary for this intake session.
         clinical_summary = (
             db.query(ClinicalSummary)
             .filter(
@@ -104,18 +115,17 @@ def doctor_dashboard(
             .first()
         )
 
-        # Count summary statuses
+        # Calculate review statistics for sessions matching
+        # the search, regardless of the selected status filter.
         if clinical_summary:
             if clinical_summary.review_status == "pending":
                 pending_reviews += 1
-
             elif clinical_summary.review_status == "reviewed":
                 reviewed_summaries += 1
-
             elif clinical_summary.review_status == "approved":
                 approved_summaries += 1
 
-        # Apply review-status filter
+        # Apply the selected review-status filter to the list.
         if review_status is not None:
             if clinical_summary is None:
                 continue
@@ -123,6 +133,7 @@ def doctor_dashboard(
             if clinical_summary.review_status != review_status:
                 continue
 
+        # Retrieve related intake information.
         symptoms = (
             db.query(Symptom)
             .filter(
@@ -164,9 +175,10 @@ def doctor_dashboard(
                 "review_status": clinical_summary.review_status,
                 "doctor_notes": clinical_summary.doctor_notes,
                 "created_at": clinical_summary.created_at,
-                "updated_at": clinical_summary.updated_at
+                "updated_at": clinical_summary.updated_at,
             }
 
+        # Add the session to the dashboard response.
         dashboard_data.append(
             {
                 "patient": {
@@ -177,83 +189,72 @@ def doctor_dashboard(
                     "age": patient.age,
                     "gender": patient.gender,
                     "phone": patient.phone,
-                    "preferred_language": patient.preferred_language
+                    "preferred_language": patient.preferred_language,
                 },
-
                 "intake_session": {
                     "session_id": session.id,
                     "status": session.status,
                     "chief_complaint": session.chief_complaint,
                     "symptom_duration": session.symptom_duration,
-                    "created_at": session.created_at
+                    "created_at": session.created_at,
                 },
-
                 "symptoms": [
                     {
                         "id": item.id,
                         "name": item.symptom_name,
                         "severity": item.severity,
-                        "duration": item.duration
+                        "duration": item.duration,
                     }
                     for item in symptoms
                 ],
-
                 "medical_history": [
                     {
                         "id": item.id,
                         "condition": item.condition_name,
-                        "details": item.details
+                        "details": item.details,
                     }
                     for item in medical_history
                 ],
-
                 "medications": [
                     {
                         "id": item.id,
                         "name": item.medication_name,
                         "dosage": item.dosage,
-                        "frequency": item.frequency
+                        "frequency": item.frequency,
                     }
                     for item in medications
                 ],
-
                 "allergies": [
                     {
                         "id": item.id,
                         "allergen": item.allergen,
-                        "reaction": item.reaction
+                        "reaction": item.reaction,
                     }
                     for item in allergies
                 ],
-
-                "clinical_summary": summary_data
+                "clinical_summary": summary_data,
             }
         )
 
     return {
         "message": "Doctor dashboard data retrieved successfully",
-
         "doctor": {
             "id": current_user.id,
             "name": current_user.full_name,
-            "role": current_user.role
+            "role": current_user.role,
         },
-
         "statistics": {
             "total_sessions": len(dashboard_data),
             "pending_reviews": pending_reviews,
             "reviewed_summaries": reviewed_summaries,
-            "approved_summaries": approved_summaries
+            "approved_summaries": approved_summaries,
         },
-
         "total_sessions": len(dashboard_data),
-
         "filter": {
             "review_status": review_status,
-            "search": search
+            "search": search,
         },
-
-        "sessions": dashboard_data
+        "sessions": dashboard_data,
     }
 
 
@@ -261,14 +262,16 @@ def doctor_dashboard(
 def get_doctor_session(
     session_id: int,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     require_doctor(current_user)
 
+    # A doctor can access only their own assigned sessions.
     session = (
         db.query(IntakeSession)
         .filter(
-            IntakeSession.id == session_id
+            IntakeSession.id == session_id,
+            IntakeSession.assigned_doctor_id == current_user.id,
         )
         .first()
     )
@@ -276,7 +279,7 @@ def get_doctor_session(
     if not session:
         raise HTTPException(
             status_code=404,
-            detail="Intake session not found"
+            detail="Intake session not found",
         )
 
     patient = session.patient
@@ -284,7 +287,7 @@ def get_doctor_session(
     if not patient:
         raise HTTPException(
             status_code=404,
-            detail="Patient profile not found"
+            detail="Patient profile not found",
         )
 
     user = patient.user
@@ -292,7 +295,7 @@ def get_doctor_session(
     if not user:
         raise HTTPException(
             status_code=404,
-            detail="Patient user not found"
+            detail="Patient user not found",
         )
 
     symptoms = (
@@ -344,12 +347,11 @@ def get_doctor_session(
             "review_status": clinical_summary.review_status,
             "doctor_notes": clinical_summary.doctor_notes,
             "created_at": clinical_summary.created_at,
-            "updated_at": clinical_summary.updated_at
+            "updated_at": clinical_summary.updated_at,
         }
 
     return {
         "message": "Doctor session details retrieved successfully",
-
         "patient": {
             "patient_id": patient.id,
             "user_id": user.id,
@@ -358,56 +360,50 @@ def get_doctor_session(
             "age": patient.age,
             "gender": patient.gender,
             "phone": patient.phone,
-            "preferred_language": patient.preferred_language
+            "preferred_language": patient.preferred_language,
         },
-
         "intake_session": {
             "session_id": session.id,
             "status": session.status,
             "chief_complaint": session.chief_complaint,
             "symptom_duration": session.symptom_duration,
-            "created_at": session.created_at
+            "created_at": session.created_at,
         },
-
         "symptoms": [
             {
                 "id": item.id,
                 "name": item.symptom_name,
                 "severity": item.severity,
-                "duration": item.duration
+                "duration": item.duration,
             }
             for item in symptoms
         ],
-
         "medical_history": [
             {
                 "id": item.id,
                 "condition": item.condition_name,
-                "details": item.details
+                "details": item.details,
             }
             for item in medical_history
         ],
-
         "medications": [
             {
                 "id": item.id,
                 "name": item.medication_name,
                 "dosage": item.dosage,
-                "frequency": item.frequency
+                "frequency": item.frequency,
             }
             for item in medications
         ],
-
         "allergies": [
             {
                 "id": item.id,
                 "allergen": item.allergen,
-                "reaction": item.reaction
+                "reaction": item.reaction,
             }
             for item in allergies
         ],
-
-        "clinical_summary": summary_data
+        "clinical_summary": summary_data,
     }
 
 
@@ -416,14 +412,16 @@ def review_doctor_session(
     session_id: int,
     review_data: ClinicalSummaryReview,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     require_doctor(current_user)
 
+    # Verify the doctor owns the assigned session.
     session = (
         db.query(IntakeSession)
         .filter(
-            IntakeSession.id == session_id
+            IntakeSession.id == session_id,
+            IntakeSession.assigned_doctor_id == current_user.id,
         )
         .first()
     )
@@ -431,7 +429,7 @@ def review_doctor_session(
     if not session:
         raise HTTPException(
             status_code=404,
-            detail="Intake session not found"
+            detail="Intake session not found",
         )
 
     clinical_summary = (
@@ -445,14 +443,10 @@ def review_doctor_session(
     if not clinical_summary:
         raise HTTPException(
             status_code=404,
-            detail="Clinical summary not found"
+            detail="Clinical summary not found",
         )
 
-    allowed_statuses = [
-        "pending",
-        "reviewed",
-        "approved"
-    ]
+    allowed_statuses = ["pending", "reviewed", "approved"]
 
     if review_data.review_status not in allowed_statuses:
         raise HTTPException(
@@ -460,7 +454,7 @@ def review_doctor_session(
             detail=(
                 "Invalid review status. "
                 "Allowed values: pending, reviewed, approved"
-            )
+            ),
         )
 
     clinical_summary.review_status = review_data.review_status
@@ -477,5 +471,5 @@ def review_doctor_session(
         "doctor_notes": clinical_summary.doctor_notes,
         "summary": clinical_summary.summary,
         "created_at": clinical_summary.created_at,
-        "updated_at": clinical_summary.updated_at
+        "updated_at": clinical_summary.updated_at,
     }

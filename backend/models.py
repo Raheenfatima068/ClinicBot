@@ -37,6 +37,11 @@ class User(Base):
         default="patient"
     )
 
+    specialty = Column(
+    String(100),
+    nullable=True
+    )
+
     created_at = Column(
         DateTime(timezone=True),
         server_default=func.now()
@@ -109,6 +114,13 @@ class IntakeSession(Base):
         Integer,
         ForeignKey("patient_profiles.id"),
         nullable=False
+    )
+
+    assigned_doctor_id = Column(
+    Integer,
+    ForeignKey("users.id"),
+    nullable=True,
+    index=True
     )
 
     status = Column(

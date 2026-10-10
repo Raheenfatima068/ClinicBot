@@ -1,6 +1,13 @@
+
 "use client";
 
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import {
+  FormEvent,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { useRouter } from "next/navigation";
 
 type QuestionResponse = {
@@ -15,6 +22,16 @@ type ApiResponse = {
   question?: string;
   field?: string;
   answer?: string;
+};
+
+type ClinicalSummaryResponse = {
+  session_id: number;
+  summary_id: number;
+  review_status: string;
+  summary: string;
+  doctor_notes?: string | null;
+  created_at?: string;
+  updated_at?: string;
 };
 
 const API_BASE_URL = "http://127.0.0.1:8000";
@@ -33,9 +50,7 @@ function getErrorMessage(
   data: ApiResponse | null,
   fallback: string
 ): string {
-  if (!data) {
-    return fallback;
-  }
+  if (!data) return fallback;
 
   if (typeof data.detail === "string") {
     return data.detail;
@@ -46,11 +61,7 @@ function getErrorMessage(
   }
 
   if (data.detail && typeof data.detail === "object") {
-    try {
-      return JSON.stringify(data.detail);
-    } catch {
-      return fallback;
-    }
+    return JSON.stringify(data.detail);
   }
 
   return fallback;
@@ -66,6 +77,25 @@ async function readApiResponse(
   }
 }
 
+function formatStatus(status: string): string {
+  return status
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+function getStatusClasses(status: string): string {
+  switch (status.toLowerCase()) {
+    case "approved":
+      return "bg-green-100 text-green-700";
+    case "reviewed":
+      return "bg-blue-100 text-blue-700";
+    case "pending":
+      return "bg-amber-100 text-amber-700";
+    default:
+      return "bg-slate-100 text-slate-700";
+  }
+}
+
 export default function PatientIntakePage() {
   const router = useRouter();
 
@@ -77,7 +107,6 @@ export default function PatientIntakePage() {
   );
 
   const [answer, setAnswer] = useState("");
-
   const [progress, setProgress] = useState(0);
 
   const [loading, setLoading] = useState(true);
@@ -86,23 +115,149 @@ export default function PatientIntakePage() {
   const [error, setError] = useState("");
   const [completed, setCompleted] = useState(false);
 
+  const [clinicalSummary, setClinicalSummary] =
+    useState<ClinicalSummaryResponse | null>(null);
+
+  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [summaryMessage, setSummaryMessage] = useState("");
+
+  // Prevent repeated session creation during ordinary rerenders
+  // and React development effect replay.
+  const sessionStartRef = useRef(false);
+
+  // Restore the patient's login token.
   useEffect(() => {
-    const storedToken = localStorage.getItem("patient_access_token");
+    const storedToken = localStorage.getItem(
+      "patient_access_token"
+    );
 
     if (!storedToken) {
-      router.push("/patient/login");
+      router.replace("/patient/login");
       return;
     }
 
-    const timer = window.setTimeout(() => {
-      setToken(storedToken);
-    }, 0);
-
-    return () => {
-      window.clearTimeout(timer);
-    };
+    setToken(storedToken);
   }, [router]);
 
+  // Load or generate the clinical summary for this session.
+  const fetchClinicalSummary = useCallback(
+    async (
+      accessToken: string,
+      currentSessionId: number
+    ) => {
+      setSummaryLoading(true);
+      setSummaryMessage("");
+      setClinicalSummary(null);
+
+      const summaryUrl =
+        `${API_BASE_URL}/ai/sessions/${currentSessionId}/soap-summary`;
+
+      const headers = {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: "application/json",
+      };
+
+      try {
+        let response = await fetch(summaryUrl, {
+          method: "GET",
+          headers,
+          cache: "no-store",
+        });
+
+        if (response.status === 404) {
+          // Distinguish a nonexistent session from a missing summary.
+          const missingBody = await response
+            .clone()
+            .json()
+            .catch(() => null);
+
+          const detail =
+            typeof missingBody?.detail === "string"
+              ? missingBody.detail.toLowerCase()
+              : "";
+
+          if (detail.includes("session not found")) {
+            throw new Error(
+              "This intake session was not found. Please start a new intake."
+            );
+          }
+
+          // No saved summary: ask the backend to generate one.
+          const generateResponse = await fetch(summaryUrl, {
+            method: "POST",
+            headers,
+          });
+
+          if (!generateResponse.ok) {
+            const body = await readApiResponse(generateResponse);
+
+            throw new Error(
+              getErrorMessage(
+                body,
+                `Summary generation failed (${generateResponse.status}).`
+              )
+            );
+          }
+
+          response = await fetch(summaryUrl, {
+            method: "GET",
+            headers,
+            cache: "no-store",
+          });
+        }
+
+        if (!response.ok) {
+          const body = await readApiResponse(response);
+
+          if (response.status === 401) {
+            throw new Error(
+              "Your login session has expired. Please log in again."
+            );
+          }
+
+          if (response.status === 403) {
+            throw new Error(
+              "You do not have permission to view this clinical summary."
+            );
+          }
+
+          throw new Error(
+            getErrorMessage(
+              body,
+              `Could not load the clinical summary (${response.status}).`
+            )
+          );
+        }
+
+        const data =
+          (await response.json()) as ClinicalSummaryResponse;
+
+        if (
+          typeof data.summary !== "string" ||
+          !data.summary.trim()
+        ) {
+          throw new Error(
+            "The server returned an empty clinical summary."
+          );
+        }
+
+        setClinicalSummary(data);
+        setSummaryMessage("");
+      } catch (err) {
+        setClinicalSummary(null);
+        setSummaryMessage(
+          err instanceof Error
+            ? err.message
+            : "Unable to load the clinical summary."
+        );
+      } finally {
+        setSummaryLoading(false);
+      }
+    },
+    []
+  );
+
+  // Retrieve the next question for the current session.
   const getNextQuestion = useCallback(
     async (
       accessToken: string,
@@ -117,7 +272,9 @@ export default function PatientIntakePage() {
             method: "GET",
             headers: {
               Authorization: `Bearer ${accessToken}`,
+              Accept: "application/json",
             },
+            cache: "no-store",
           }
         );
 
@@ -126,6 +283,12 @@ export default function PatientIntakePage() {
         )) as QuestionResponse | null;
 
         if (!response.ok) {
+          if (response.status === 401) {
+            throw new Error(
+              "Your login session has expired. Please log in again."
+            );
+          }
+
           throw new Error(
             getErrorMessage(
               data as ApiResponse | null,
@@ -141,15 +304,18 @@ export default function PatientIntakePage() {
         }
 
         setQuestion(data.question);
-
-        const currentProgress =
-          progressMap[data.field] ?? 0;
-
-        setProgress(currentProgress);
+        setProgress(progressMap[data.field] ?? 0);
 
         if (data.field === "complete") {
-          setCompleted(true);
           setProgress(100);
+          setCompleted(true);
+
+          await fetchClinicalSummary(
+            accessToken,
+            currentSessionId
+          );
+        } else {
+          setCompleted(false);
         }
       } catch (err) {
         setError(
@@ -159,14 +325,21 @@ export default function PatientIntakePage() {
         );
       }
     },
-    []
+    [fetchClinicalSummary]
   );
 
+  // Create one intake session and load its first question.
   const createSession = useCallback(
     async (accessToken: string) => {
       try {
         setLoading(true);
         setError("");
+        setAnswer("");
+        setSessionId(null);
+        setProgress(0);
+        setCompleted(false);
+        setClinicalSummary(null);
+        setSummaryMessage("");
 
         const response = await fetch(
           `${API_BASE_URL}/intake/sessions`,
@@ -174,6 +347,7 @@ export default function PatientIntakePage() {
             method: "POST",
             headers: {
               Authorization: `Bearer ${accessToken}`,
+              Accept: "application/json",
             },
           }
         );
@@ -181,6 +355,12 @@ export default function PatientIntakePage() {
         const data = await readApiResponse(response);
 
         if (!response.ok) {
+          if (response.status === 401) {
+            throw new Error(
+              "Your login session has expired. Please log in again."
+            );
+          }
+
           throw new Error(
             getErrorMessage(
               data,
@@ -189,9 +369,9 @@ export default function PatientIntakePage() {
           );
         }
 
-        if (!data?.id) {
+        if (!data || typeof data.id !== "number") {
           throw new Error(
-            "The server did not return a valid intake session."
+            "The server did not return a valid intake session ID."
           );
         }
 
@@ -199,6 +379,9 @@ export default function PatientIntakePage() {
 
         await getNextQuestion(accessToken, data.id);
       } catch (err) {
+        // Allow the patient to retry after a failed request.
+        sessionStartRef.current = false;
+
         setError(
           err instanceof Error
             ? err.message
@@ -211,23 +394,31 @@ export default function PatientIntakePage() {
     [getNextQuestion]
   );
 
+  // Start the intake once after restoring the login token.
   useEffect(() => {
-    if (!token) {
+    if (!token || sessionStartRef.current) {
       return;
     }
 
-    const timer = window.setTimeout(() => {
-      createSession(token);
-    }, 0);
-
-    return () => {
-      window.clearTimeout(timer);
-    };
+    sessionStartRef.current = true;
+    void createSession(token);
   }, [token, createSession]);
-  async function submitAnswer(event: FormEvent) {
+
+  // Retry session creation if the initial request failed.
+  function retrySession() {
+    if (!token || loading) return;
+
+    sessionStartRef.current = true;
+    void createSession(token);
+  }
+
+  // Submit the patient's current answer.
+  async function submitAnswer(
+    event: FormEvent<HTMLFormElement>
+  ) {
     event.preventDefault();
 
-    if (!token || !sessionId) {
+    if (!token || sessionId === null) {
       setError("Your intake session is not available.");
       return;
     }
@@ -243,19 +434,13 @@ export default function PatientIntakePage() {
       setSubmitting(true);
       setError("");
 
-      /*
-       * IMPORTANT:
-       * The FastAPI backend defines `answer: str` as a query parameter.
-       * Therefore the answer must be sent in the URL.
-       */
       const response = await fetch(
-        `${API_BASE_URL}/conversation/sessions/${sessionId}/answer?answer=${encodeURIComponent(
-          trimmedAnswer
-        )}`,
+        `${API_BASE_URL}/conversation/sessions/${sessionId}/answer?answer=${encodeURIComponent(trimmedAnswer)}`,
         {
           method: "POST",
           headers: {
             Authorization: `Bearer ${token}`,
+            Accept: "application/json",
           },
         }
       );
@@ -263,6 +448,12 @@ export default function PatientIntakePage() {
       const data = await readApiResponse(response);
 
       if (!response.ok) {
+        if (response.status === 401) {
+          throw new Error(
+            "Your login session has expired. Please log in again."
+          );
+        }
+
         throw new Error(
           getErrorMessage(
             data,
@@ -285,456 +476,267 @@ export default function PatientIntakePage() {
     }
   }
 
-  function handleSignOut() {
+  function logout() {
     localStorage.removeItem("patient_access_token");
-    router.push("/patient/login");
-  }
-
-  if (!token) {
-    return (
-      <main className="min-h-screen bg-slate-50 flex items-center justify-center px-6">
-        <div className="text-center">
-          <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-4 border-slate-200 border-t-teal-600" />
-
-          <p className="text-sm text-slate-600">
-            Checking your secure session...
-          </p>
-        </div>
-      </main>
-    );
+    router.replace("/patient/login");
   }
 
   return (
-    <main className="min-h-screen bg-slate-50">
-      {/* Header */}
+    <main className="min-h-screen bg-slate-50 text-slate-800">
       <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-5 lg:px-8">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-teal-700 text-lg font-bold text-white">
-              C
-            </div>
-
-            <div>
-              <h1 className="text-xl font-bold tracking-tight text-slate-900">
-                ClinicBot
-              </h1>
-
-              <p className="text-xs text-slate-500">
-                Patient Intake Portal
-              </p>
-            </div>
+        <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
+          <div>
+            <h1 className="text-xl font-bold text-teal-700">
+              ClinicBot
+            </h1>
+            <p className="text-sm text-slate-500">
+              Clinical Intake Agent
+            </p>
           </div>
 
           <button
             type="button"
-            onClick={handleSignOut}
-            className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900"
+            onClick={logout}
+            className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium hover:bg-slate-100"
           >
-            Sign out
+            Log out
           </button>
         </div>
       </header>
 
-      {/* Main */}
-      <div className="mx-auto grid max-w-7xl gap-8 px-6 py-8 lg:grid-cols-[280px_1fr] lg:px-8 lg:py-10">
-        {/* Sidebar */}
-        <aside className="space-y-5">
-          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-            <div className="mb-5 flex items-center gap-3">
-              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-teal-50 text-teal-700">
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  className="h-5 w-5"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M12 21a9 9 0 100-18 9 9 0 000 18z"
-                  />
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M12 7v5l3 2"
-                  />
-                </svg>
-              </div>
+      <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6">
+        <div className="mb-6">
+          <p className="text-sm font-semibold uppercase tracking-wide text-teal-700">
+            Patient Portal
+          </p>
 
-              <div>
-                <p className="text-sm font-semibold text-slate-900">
-                  Pre-consultation
-                </p>
+          <h2 className="mt-2 text-2xl font-bold sm:text-3xl">
+            Pre-Consultation Intake
+          </h2>
 
-                <p className="text-xs text-slate-500">
-                  Takes a few minutes
-                </p>
-              </div>
-            </div>
+          <p className="mt-2 text-sm leading-6 text-slate-600">
+            Answer a few questions about your health so your
+            clinical information can be prepared for your doctor.
+          </p>
+        </div>
 
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
+          <div className="mb-6 flex items-center justify-between gap-3">
             <div>
-              <div className="mb-2 flex items-center justify-between">
-                <span className="text-xs font-medium text-slate-500">
-                  Progress
-                </span>
+              <h3 className="font-semibold text-slate-900">
+                Your health information
+              </h3>
 
-                <span className="text-xs font-semibold text-teal-700">
-                  {progress}%
-                </span>
-              </div>
-
-              <div className="h-2 overflow-hidden rounded-full bg-slate-100">
-                <div
-                  className="h-full rounded-full bg-teal-600 transition-all duration-500"
-                  style={{
-                    width: `${progress}%`,
-                  }}
-                />
-              </div>
-            </div>
-          </div>
-
-          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-            <h2 className="mb-4 text-sm font-semibold text-slate-900">
-              What we collect
-            </h2>
-
-            <div className="space-y-3">
-              {[
-                "Main health concern",
-                "Duration and symptoms",
-                "Medical history",
-                "Current medications",
-                "Known allergies",
-              ].map((item, index) => (
-                <div
-                  key={item}
-                  className="flex items-start gap-3"
-                >
-                  <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-teal-50 text-xs font-semibold text-teal-700">
-                    {index + 1}
-                  </div>
-
-                  <p className="text-sm leading-5 text-slate-600">
-                    {item}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="rounded-2xl border border-slate-200 bg-slate-100 p-5">
-            <div className="flex gap-3">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                className="mt-0.5 h-5 w-5 shrink-0 text-slate-600"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7l8-4z"
-                />
-
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M9 12l2 2 4-4"
-                />
-              </svg>
-
-              <div>
-                <p className="text-xs font-semibold text-slate-700">
-                  Your privacy matters
-                </p>
-
-                <p className="mt-1 text-xs leading-5 text-slate-500">
-                  Your information is collected for
-                  pre-consultation and clinical review.
-                </p>
-              </div>
-            </div>
-          </div>
-        </aside>
-
-        {/* Intake Area */}
-        <section className="min-w-0">
-          <div className="rounded-3xl border border-slate-200 bg-white shadow-sm">
-            {/* Top section */}
-            <div className="border-b border-slate-200 px-6 py-7 sm:px-8">
-              <div className="mb-3 flex items-center gap-2">
-                <span className="rounded-full bg-teal-50 px-3 py-1 text-xs font-semibold text-teal-700">
-                  Patient Intake
-                </span>
-
-                <span className="text-xs text-slate-400">
-                  Secure session
-                </span>
-              </div>
-
-              <h2 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
-                Tell us about your health concern
-              </h2>
-
-              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
-                Answer a few simple questions before your
-                consultation. Your responses will help the
-                doctor understand your concerns more quickly.
+              <p className="mt-1 text-sm text-slate-500">
+                {sessionId !== null
+                  ? `Session #${sessionId}`
+                  : "Preparing your session"}
               </p>
             </div>
 
-            {/* Content */}
-            <div className="px-6 py-8 sm:px-8 sm:py-10">
-              {loading ? (
-                <div className="flex min-h-[350px] flex-col items-center justify-center text-center">
-                  <div className="mb-5 h-11 w-11 animate-spin rounded-full border-4 border-slate-200 border-t-teal-600" />
+            <span className="rounded-full bg-teal-50 px-3 py-1 text-xs font-semibold text-teal-700">
+              {completed ? "Completed" : "In progress"}
+            </span>
+          </div>
 
-                  <h3 className="text-lg font-semibold text-slate-900">
-                    Preparing your intake
-                  </h3>
+          <div
+            className="mb-6 h-2 overflow-hidden rounded-full bg-slate-100"
+            role="progressbar"
+            aria-label="Intake progress"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={progress}
+          >
+            <div
+              className="h-full rounded-full bg-teal-600 transition-all duration-300"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
 
-                  <p className="mt-2 max-w-sm text-sm leading-6 text-slate-500">
-                    Please wait while we prepare your
-                    secure questionnaire.
-                  </p>
-                </div>
-              ) : completed ? (
-                <div className="flex min-h-[350px] flex-col items-center justify-center text-center">
-                  <div className="mb-6 flex h-16 w-16 items-center justify-center rounded-full bg-teal-50">
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      className="h-8 w-8 text-teal-700"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        d="M5 12l4 4L19 6"
-                      />
-                    </svg>
-                  </div>
+          <div className="mb-5 flex justify-between text-xs text-slate-500">
+            <span>Start</span>
+            <span>{progress}% complete</span>
+          </div>
 
-                  <span className="mb-3 rounded-full bg-teal-50 px-3 py-1 text-xs font-semibold text-teal-700">
-                    Intake complete
-                  </span>
+          {error && (
+            <div
+              role="alert"
+              className="mb-5 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700"
+            >
+              <p className="font-semibold">Something went wrong</p>
+              <p className="mt-1 break-words">{error}</p>
 
-                  <h3 className="text-2xl font-bold text-slate-900">
-                    Thank you
-                  </h3>
+              {!sessionId && (
+                <button
+                  type="button"
+                  onClick={retrySession}
+                  disabled={loading || !token}
+                  className="mt-3 rounded-lg bg-red-700 px-4 py-2 font-medium text-white hover:bg-red-800 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Try again
+                </button>
+              )}
 
-                  <p className="mt-3 max-w-lg text-sm leading-6 text-slate-500">
-                    Your pre-consultation information has
-                    been successfully collected. A doctor
-                    can review the information before your
-                    consultation.
-                  </p>
-
-                  <div className="mt-8 rounded-xl border border-slate-200 bg-slate-50 px-5 py-4 text-left">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                      Next step
-                    </p>
-
-                    <p className="mt-1 text-sm text-slate-700">
-                      Please wait for the clinic staff or
-                      doctor to continue with your
-                      consultation.
-                    </p>
-                  </div>
-                </div>
-              ) : (
-                <>
-                  {/* Question */}
-                  <div className="mx-auto max-w-3xl">
-                    <div className="mb-8">
-                      <p className="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-teal-700">
-                        Question
-                      </p>
-
-                      <h3 className="text-xl font-semibold leading-8 text-slate-900 sm:text-2xl">
-                        {question}
-                      </h3>
-                    </div>
-
-                    {/* Error */}
-                    {error && (
-                      <div className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3">
-                        <div className="flex gap-3">
-                          <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="1.8"
-                            className="mt-0.5 h-5 w-5 shrink-0 text-red-600"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              d="M12 9v4"
-                            />
-
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              d="M12 17h.01"
-                            />
-
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              d="M10.3 3.7L2.8 17a2 2 0 001.7 3h15a2 2 0 001.7-3L13.7 3.7a2 2 0 00-3.4 0z"
-                            />
-                          </svg>
-
-                          <p className="text-sm leading-6 text-red-700">
-                            {error}
-                          </p>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Form */}
-                    <form onSubmit={submitAnswer}>
-                      <label
-                        htmlFor="answer"
-                        className="mb-2 block text-sm font-semibold text-slate-700"
-                      >
-                        Your answer
-                      </label>
-
-                      <textarea
-                        id="answer"
-                        value={answer}
-                        onChange={(event) =>
-                          setAnswer(event.target.value)
-                        }
-                        placeholder="Type your answer here..."
-                        rows={6}
-                        disabled={submitting}
-                        className="w-full resize-none rounded-2xl border border-slate-300 bg-white px-4 py-4 text-sm leading-6 text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-teal-600 focus:ring-4 focus:ring-teal-50 disabled:cursor-not-allowed disabled:bg-slate-50"
-                      />
-
-                      <div className="mt-2 flex items-center justify-between">
-                        <p className="text-xs text-slate-400">
-                          Please provide as much detail as you
-                          can.
-                        </p>
-
-                        <p className="text-xs text-slate-400">
-                          {answer.length} characters
-                        </p>
-                      </div>
-
-                      <button
-                        type="submit"
-                        disabled={
-                          submitting ||
-                          !answer.trim()
-                        }
-                        className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-teal-700 px-5 py-3.5 text-sm font-semibold text-white transition hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300 sm:w-auto sm:min-w-40"
-                      >
-                        {submitting ? (
-                          <>
-                            <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
-
-                            Saving...
-                          </>
-                        ) : (
-                          <>
-                            Continue
-
-                            <svg
-                              xmlns="http://www.w3.org/2000/svg"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="1.8"
-                              className="h-4 w-4"
-                            >
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                d="M5 12h14"
-                              />
-
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                d="M13 6l6 6-6 6"
-                              />
-                            </svg>
-                          </>
-                        )}
-                      </button>
-                    </form>
-                  </div>
-
-                  {/* Important notice */}
-                  <div className="mx-auto mt-10 max-w-3xl rounded-2xl border border-amber-200 bg-amber-50 p-5">
-                    <div className="flex gap-3">
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="1.8"
-                        className="mt-0.5 h-5 w-5 shrink-0 text-amber-700"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          d="M12 9v4"
-                        />
-
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          d="M12 17h.01"
-                        />
-
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          d="M10.3 3.7L2.8 17a2 2 0 001.7 3h15a2 2 0 001.7-3L13.7 3.7a2 2 0 00-3.4 0z"
-                        />
-                      </svg>
-
-                      <div>
-                        <p className="text-sm font-semibold text-amber-900">
-                          Important
-                        </p>
-
-                        <p className="mt-1 text-xs leading-5 text-amber-800">
-                          ClinicBot is a pre-consultation
-                          information and documentation tool.
-                          It does not provide a medical
-                          diagnosis or prescribe medication.
-                          Your information is reviewed by a
-                          healthcare professional.
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </>
+              {error.toLowerCase().includes("login session") && (
+                <button
+                  type="button"
+                  onClick={logout}
+                  className="mt-3 ml-2 rounded-lg border border-red-300 px-4 py-2 font-medium hover:bg-red-100"
+                >
+                  Log in again
+                </button>
               )}
             </div>
-          </div>
+          )}
 
-          {/* Footer */}
-          <div className="mt-6 text-center">
-            <p className="text-xs text-slate-400">
-              ClinicBot • Secure Pre-consultation Intake
-            </p>
-          </div>
+          {loading ? (
+            <div className="flex flex-col items-center py-12 text-center">
+              <div
+                className="mb-4 h-10 w-10 animate-spin rounded-full border-4 border-slate-200 border-t-teal-600"
+                aria-label="Loading"
+              />
+
+              <p className="font-medium text-slate-700">
+                Preparing your intake session...
+              </p>
+
+              <p className="mt-2 text-sm text-slate-500">
+                Please wait a moment.
+              </p>
+            </div>
+          ) : completed ? (
+            <div className="space-y-5">
+              <div className="rounded-xl border border-green-200 bg-green-50 p-5">
+                <h3 className="text-lg font-bold text-green-800">
+                  Intake completed
+                </h3>
+
+                <p className="mt-2 text-sm leading-6 text-green-800">
+                  Thank you. Your answers have been submitted.
+                  Your clinical summary is shown below when available.
+                  Your doctor should review the information before
+                  making clinical decisions.
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-slate-200 p-5">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <h3 className="font-bold text-slate-900">
+                    Clinical Summary
+                  </h3>
+
+                  {clinicalSummary && (
+                    <span
+                      className={`rounded-full px-3 py-1 text-xs font-semibold ${getStatusClasses(
+                        clinicalSummary.review_status
+                      )}`}
+                    >
+                      {formatStatus(
+                        clinicalSummary.review_status
+                      )}
+                    </span>
+                  )}
+                </div>
+
+                {summaryLoading ? (
+                  <p className="mt-4 text-sm text-slate-500">
+                    Loading your clinical summary...
+                  </p>
+                ) : clinicalSummary ? (
+                  <>
+                    <div className="mt-4 whitespace-pre-wrap break-words text-sm leading-7 text-slate-700">
+                      {clinicalSummary.summary}
+                    </div>
+
+                    {clinicalSummary.doctor_notes && (
+                      <div className="mt-5 border-t border-slate-200 pt-4">
+                        <h4 className="font-semibold text-slate-800">
+                          Doctor&apos;s Notes
+                        </h4>
+
+                        <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-600">
+                          {clinicalSummary.doctor_notes}
+                        </p>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="mt-4">
+                    <p className="text-sm leading-6 text-slate-600">
+                      {summaryMessage ||
+                        "Your clinical summary is not available yet."}
+                    </p>
+
+                    {token && sessionId !== null && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          void fetchClinicalSummary(token, sessionId)
+                        }
+                        disabled={summaryLoading}
+                        className="mt-3 rounded-lg bg-teal-700 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-800 disabled:opacity-50"
+                      >
+                        Retry summary
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <p className="text-xs leading-5 text-slate-500">
+                This summary is intended to support your clinician.
+                It is not a diagnosis or a substitute for medical advice.
+              </p>
+            </div>
+          ) : (
+            <form onSubmit={submitAnswer}>
+              <label
+                htmlFor="patient-answer"
+                className="mb-3 block text-lg font-semibold leading-7 text-slate-900"
+              >
+                {question}
+              </label>
+
+              <textarea
+                id="patient-answer"
+                value={answer}
+                onChange={(event) => setAnswer(event.target.value)}
+                placeholder="Type your answer here..."
+                rows={5}
+                required
+                disabled={submitting || !sessionId}
+                className="w-full resize-y rounded-xl border border-slate-300 bg-white p-4 text-sm leading-6 outline-none transition focus:border-teal-600 focus:ring-2 focus:ring-teal-100 disabled:bg-slate-100"
+              />
+
+              <div className="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-xs leading-5 text-slate-500">
+                  Please provide accurate information. You can
+                  describe your symptoms in your own words.
+                </p>
+
+                <button
+                  type="submit"
+                  disabled={
+                    submitting ||
+                    !sessionId ||
+                    !answer.trim()
+                  }
+                  className="inline-flex min-w-32 items-center justify-center rounded-xl bg-teal-700 px-5 py-3 text-sm font-semibold text-white transition hover:bg-teal-800 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {submitting
+                    ? "Saving..."
+                    : "Continue"}
+                </button>
+              </div>
+            </form>
+          )}
         </section>
+
+        <p className="mt-5 text-center text-xs leading-5 text-slate-500">
+          Your answers help prepare information for your healthcare
+          provider. ClinicBot does not independently diagnose
+          conditions or prescribe medication.
+        </p>
       </div>
     </main>
   );
