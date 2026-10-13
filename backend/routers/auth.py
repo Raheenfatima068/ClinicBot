@@ -38,14 +38,15 @@ def register_user(
         .first()
     )
 
+    # Return 409 if the email is already registered.
     if existing_user:
         raise HTTPException(
-            status_code=400,
+            status_code=409,
             detail="Email already registered",
         )
 
     # Public patient registration joins the configured main clinic.
-    # Do not accept a tenant_id or role from the public request.
+    # Do not accept tenant_id or role from the public request.
     clinic = (
         db.query(Clinic)
         .filter(Clinic.slug == "clinicbot-main")
@@ -117,7 +118,10 @@ def login_user(
     if user.tenant_id is None:
         raise HTTPException(
             status_code=403,
-            detail="Your account is not assigned to a clinic. Contact an administrator.",
+            detail=(
+                "Your account is not assigned to a clinic. "
+                "Contact an administrator."
+            ),
         )
 
     # Issue a token containing the user's current clinic membership.
