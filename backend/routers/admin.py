@@ -1,6 +1,7 @@
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import SQLAlchemyError
 
 from database import get_db
 from models import User
@@ -10,34 +11,35 @@ from auth import hash_password
 
 router = APIRouter(
     prefix="/admin",
-    tags=["Admin"]
+    tags=["Admin"],
 )
 
 
 @router.get("/dashboard")
 def get_admin_dashboard(
     current_admin: User = Depends(get_current_admin_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
-    total_users = db.query(User).count()
+    if current_admin.tenant_id is None:
+        raise HTTPException(
+            status_code=403,
+            detail="Admin is not assigned to a clinic.",
+        )
 
-    total_patients = (
-        db.query(User)
-        .filter(User.role == "patient")
-        .count()
+    clinic_users = db.query(User).filter(
+        User.tenant_id == current_admin.tenant_id
     )
 
-    total_doctors = (
-        db.query(User)
-        .filter(User.role == "doctor")
-        .count()
-    )
-
-    total_admins = (
-        db.query(User)
-        .filter(User.role == "admin")
-        .count()
-    )
+    total_users = clinic_users.count()
+    total_patients = clinic_users.filter(
+        User.role == "patient"
+    ).count()
+    total_doctors = clinic_users.filter(
+        User.role == "doctor"
+    ).count()
+    total_admins = clinic_users.filter(
+        User.role == "admin"
+    ).count()
 
     return {
         "message": "Admin dashboard data retrieved successfully",
@@ -45,14 +47,14 @@ def get_admin_dashboard(
             "id": current_admin.id,
             "name": current_admin.full_name,
             "email": current_admin.email,
-            "role": current_admin.role
+            "role": current_admin.role,
         },
         "statistics": {
             "total_users": total_users,
             "total_patients": total_patients,
             "total_doctors": total_doctors,
-            "total_admins": total_admins
-        }
+            "total_admins": total_admins,
+        },
     }
 
 
@@ -65,6 +67,12 @@ def create_doctor(
     current_admin: User = Depends(get_current_admin_user),
     db: Session = Depends(get_db),
 ):
+    if current_admin.tenant_id is None:
+        raise HTTPException(
+            status_code=403,
+            detail="Admin is not assigned to a clinic.",
+        )
+
     full_name = full_name.strip()
     email = email.strip().lower()
     specialty = specialty.strip()
@@ -72,25 +80,31 @@ def create_doctor(
     if not full_name:
         raise HTTPException(
             status_code=400,
-            detail="Doctor name is required"
+            detail="Doctor name is required.",
         )
 
     if not email.endswith("@clinicbot.com"):
         raise HTTPException(
             status_code=400,
-            detail="Doctor email must end with @clinicbot.com"
+            detail="Doctor email must end with @clinicbot.com.",
         )
 
     if len(password) < 12:
         raise HTTPException(
             status_code=400,
-            detail="Password must contain at least 12 characters"
+            detail="Password must contain at least 12 characters.",
+        )
+
+    if len(password.encode("utf-8")) > 72:
+        raise HTTPException(
+            status_code=400,
+            detail="Password must not exceed 72 UTF-8 bytes.",
         )
 
     if not specialty:
         raise HTTPException(
             status_code=400,
-            detail="Doctor specialty is required"
+            detail="Doctor specialty is required.",
         )
 
     existing_user = (
@@ -102,7 +116,7 @@ def create_doctor(
     if existing_user:
         raise HTTPException(
             status_code=400,
-            detail="This email is already registered"
+            detail="This email is already registered.",
         )
 
     doctor = User(
@@ -110,12 +124,20 @@ def create_doctor(
         email=email,
         password_hash=hash_password(password),
         role="doctor",
-        specialty=specialty
+        specialty=specialty,
+        tenant_id=current_admin.tenant_id,
     )
 
-    db.add(doctor)
-    db.commit()
-    db.refresh(doctor)
+    try:
+        db.add(doctor)
+        db.commit()
+        db.refresh(doctor)
+    except SQLAlchemyError:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail="Doctor account could not be created.",
+        )
 
     return {
         "message": "Doctor created successfully",
@@ -124,19 +146,28 @@ def create_doctor(
             "full_name": doctor.full_name,
             "email": doctor.email,
             "specialty": doctor.specialty,
-            "role": doctor.role
-        }
+            "role": doctor.role,
+        },
     }
 
 
 @router.get("/doctors")
 def list_doctors(
     current_admin: User = Depends(get_current_admin_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
+    if current_admin.tenant_id is None:
+        raise HTTPException(
+            status_code=403,
+            detail="Admin is not assigned to a clinic.",
+        )
+
     doctors = (
         db.query(User)
-        .filter(User.role == "doctor")
+        .filter(
+            User.role == "doctor",
+            User.tenant_id == current_admin.tenant_id,
+        )
         .order_by(User.full_name)
         .all()
     )
@@ -148,7 +179,7 @@ def list_doctors(
                 "full_name": doctor.full_name,
                 "email": doctor.email,
                 "specialty": doctor.specialty,
-                "role": doctor.role
+                "role": doctor.role,
             }
             for doctor in doctors
         ]

@@ -1,8 +1,47 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
+
+from sqlalchemy import (
+    Column,
+    Integer,
+    String,
+    DateTime,
+    ForeignKey,
+)
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 
 from database import Base
+
+
+class Clinic(Base):
+    __tablename__ = "clinics"
+
+    id = Column(
+        Integer,
+        primary_key=True,
+        index=True,
+    )
+
+    name = Column(
+        String(150),
+        nullable=False,
+    )
+
+    slug = Column(
+        String(100),
+        unique=True,
+        nullable=False,
+        index=True,
+    )
+
+    created_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )
+
+    users = relationship(
+        "User",
+        back_populates="clinic",
+    )
 
 
 class User(Base):
@@ -11,46 +50,60 @@ class User(Base):
     id = Column(
         Integer,
         primary_key=True,
-        index=True
+        index=True,
+    )
+
+    # Clinic membership for multi-tenant isolation.
+    # Nullable temporarily for the existing database migration.
+    tenant_id = Column(
+        Integer,
+        ForeignKey("clinics.id"),
+        nullable=True,
+        index=True,
     )
 
     full_name = Column(
         String(100),
-        nullable=False
+        nullable=False,
     )
 
     email = Column(
         String(150),
         unique=True,
         nullable=False,
-        index=True
+        index=True,
     )
 
     password_hash = Column(
         String(255),
-        nullable=False
+        nullable=False,
     )
 
     role = Column(
         String(20),
         nullable=False,
-        default="patient"
+        default="patient",
     )
 
     specialty = Column(
-    String(100),
-    nullable=True
+        String(100),
+        nullable=True,
     )
 
     created_at = Column(
         DateTime(timezone=True),
-        server_default=func.now()
+        server_default=func.now(),
+    )
+
+    clinic = relationship(
+        "Clinic",
+        back_populates="users",
     )
 
     profile = relationship(
         "PatientProfile",
         back_populates="user",
-        uselist=False
+        uselist=False,
     )
 
 
@@ -60,44 +113,44 @@ class PatientProfile(Base):
     id = Column(
         Integer,
         primary_key=True,
-        index=True
+        index=True,
     )
 
     user_id = Column(
         Integer,
         ForeignKey("users.id"),
         unique=True,
-        nullable=False
+        nullable=False,
     )
 
     age = Column(
         Integer,
-        nullable=True
+        nullable=True,
     )
 
     gender = Column(
         String(20),
-        nullable=True
+        nullable=True,
     )
 
     phone = Column(
         String(30),
-        nullable=True
+        nullable=True,
     )
 
     preferred_language = Column(
         String(50),
-        nullable=True
+        nullable=True,
     )
 
     user = relationship(
         "User",
-        back_populates="profile"
+        back_populates="profile",
     )
 
     intake_sessions = relationship(
         "IntakeSession",
-        back_populates="patient"
+        back_populates="patient",
     )
 
 
@@ -107,77 +160,79 @@ class IntakeSession(Base):
     id = Column(
         Integer,
         primary_key=True,
-        index=True
+        index=True,
     )
 
     patient_id = Column(
         Integer,
         ForeignKey("patient_profiles.id"),
-        nullable=False
+        nullable=False,
     )
 
     assigned_doctor_id = Column(
-    Integer,
-    ForeignKey("users.id"),
-    nullable=True,
-    index=True
+        Integer,
+        ForeignKey("users.id"),
+        nullable=True,
+        index=True,
     )
 
     status = Column(
         String(20),
         nullable=False,
-        default="active"
+        default="active",
     )
 
     chief_complaint = Column(
         String(500),
-        nullable=True
+        nullable=True,
     )
 
     symptom_duration = Column(
         String(100),
-        nullable=True
+        nullable=True,
     )
 
     created_at = Column(
         DateTime(timezone=True),
-        server_default=func.now()
+        server_default=func.now(),
     )
 
     patient = relationship(
         "PatientProfile",
-        back_populates="intake_sessions"
+        back_populates="intake_sessions",
     )
 
     symptoms = relationship(
         "Symptom",
         back_populates="intake_session",
-        cascade="all, delete-orphan"
+        cascade="all, delete-orphan",
     )
 
     medical_history = relationship(
         "MedicalHistory",
         back_populates="intake_session",
-        cascade="all, delete-orphan"
+        cascade="all, delete-orphan",
     )
 
     medications = relationship(
         "Medication",
         back_populates="intake_session",
-        cascade="all, delete-orphan"
+        cascade="all, delete-orphan",
     )
 
     allergies = relationship(
         "Allergy",
         back_populates="intake_session",
-        cascade="all, delete-orphan"
+        cascade="all, delete-orphan",
     )
+
     clinical_summary = relationship(
         "ClinicalSummary",
         back_populates="intake_session",
         uselist=False,
-        cascade="all, delete-orphan"
+        cascade="all, delete-orphan",
     )
+
 
 class Symptom(Base):
     __tablename__ = "symptoms"
@@ -185,33 +240,33 @@ class Symptom(Base):
     id = Column(
         Integer,
         primary_key=True,
-        index=True
+        index=True,
     )
 
     intake_session_id = Column(
         Integer,
         ForeignKey("intake_sessions.id"),
-        nullable=False
+        nullable=False,
     )
 
     symptom_name = Column(
         String(200),
-        nullable=False
+        nullable=False,
     )
 
     severity = Column(
         String(20),
-        nullable=True
+        nullable=True,
     )
 
     duration = Column(
         String(100),
-        nullable=True
+        nullable=True,
     )
 
     intake_session = relationship(
         "IntakeSession",
-        back_populates="symptoms"
+        back_populates="symptoms",
     )
 
 
@@ -221,28 +276,28 @@ class MedicalHistory(Base):
     id = Column(
         Integer,
         primary_key=True,
-        index=True
+        index=True,
     )
 
     intake_session_id = Column(
         Integer,
         ForeignKey("intake_sessions.id"),
-        nullable=False
+        nullable=False,
     )
 
     condition_name = Column(
         String(200),
-        nullable=False
+        nullable=False,
     )
 
     details = Column(
         String(500),
-        nullable=True
+        nullable=True,
     )
 
     intake_session = relationship(
         "IntakeSession",
-        back_populates="medical_history"
+        back_populates="medical_history",
     )
 
 
@@ -252,33 +307,33 @@ class Medication(Base):
     id = Column(
         Integer,
         primary_key=True,
-        index=True
+        index=True,
     )
 
     intake_session_id = Column(
         Integer,
         ForeignKey("intake_sessions.id"),
-        nullable=False
+        nullable=False,
     )
 
     medication_name = Column(
         String(200),
-        nullable=False
+        nullable=False,
     )
 
     dosage = Column(
         String(100),
-        nullable=True
+        nullable=True,
     )
 
     frequency = Column(
         String(100),
-        nullable=True
+        nullable=True,
     )
 
     intake_session = relationship(
         "IntakeSession",
-        back_populates="medications"
+        back_populates="medications",
     )
 
 
@@ -288,73 +343,75 @@ class Allergy(Base):
     id = Column(
         Integer,
         primary_key=True,
-        index=True
+        index=True,
     )
 
     intake_session_id = Column(
         Integer,
         ForeignKey("intake_sessions.id"),
-        nullable=False
+        nullable=False,
     )
 
     allergen = Column(
         String(200),
-        nullable=False
+        nullable=False,
     )
 
     reaction = Column(
         String(500),
-        nullable=True
+        nullable=True,
     )
 
     intake_session = relationship(
         "IntakeSession",
-        back_populates="allergies"
+        back_populates="allergies",
     )
+
+
 class ClinicalSummary(Base):
     __tablename__ = "clinical_summaries"
 
     id = Column(
         Integer,
         primary_key=True,
-        index=True
+        index=True,
     )
 
     intake_session_id = Column(
         Integer,
         ForeignKey("intake_sessions.id"),
         nullable=False,
-        unique=True
+        unique=True,
     )
 
     summary = Column(
         String(5000),
-        nullable=False
+        nullable=False,
     )
 
     review_status = Column(
         String(20),
         nullable=False,
-        default="pending"
+        default="pending",
     )
 
     doctor_notes = Column(
         String(5000),
-        nullable=True
+        nullable=True,
     )
 
     created_at = Column(
         DateTime(timezone=True),
-        server_default=func.now()
+        server_default=func.now(),
     )
 
     updated_at = Column(
         DateTime(timezone=True),
         server_default=func.now(),
-        onupdate=func.now()
+        onupdate=func.now(),
     )
 
     intake_session = relationship(
         "IntakeSession",
-        back_populates="clinical_summary"
+        back_populates="clinical_summary",
     )

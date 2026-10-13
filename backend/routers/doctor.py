@@ -23,6 +23,7 @@ router = APIRouter(
 )
 
 
+
 def require_doctor(current_user: User):
     if current_user.role != "doctor":
         raise HTTPException(
@@ -30,7 +31,14 @@ def require_doctor(current_user: User):
             detail="Doctor access required",
         )
 
+    if current_user.tenant_id is None:
+        raise HTTPException(
+            status_code=403,
+            detail="Doctor is not assigned to a clinic.",
+        )
+
     return current_user
+
 
 
 @router.get("/dashboard")
@@ -63,14 +71,14 @@ def doctor_dashboard(
     # Retrieve only sessions assigned to the logged-in doctor.
     sessions = (
         db.query(IntakeSession)
-        .join(IntakeSession.patient)
-        .join(PatientProfile.user)
+        .join(PatientProfile, IntakeSession.patient_id == PatientProfile.id)
+        .join(User, PatientProfile.user_id == User.id)
         .filter(
-            IntakeSession.assigned_doctor_id == current_user.id
+            IntakeSession.assigned_doctor_id == current_user.id,
+            User.tenant_id == current_user.tenant_id,
         )
         .all()
     )
-
     dashboard_data = []
 
     pending_reviews = 0
@@ -269,13 +277,15 @@ def get_doctor_session(
     # A doctor can access only their own assigned sessions.
     session = (
         db.query(IntakeSession)
+        .join(PatientProfile, IntakeSession.patient_id == PatientProfile.id)
+        .join(User, PatientProfile.user_id == User.id)
         .filter(
             IntakeSession.id == session_id,
             IntakeSession.assigned_doctor_id == current_user.id,
+            User.tenant_id == current_user.tenant_id,
         )
         .first()
     )
-
     if not session:
         raise HTTPException(
             status_code=404,
@@ -417,11 +427,23 @@ def review_doctor_session(
     require_doctor(current_user)
 
     # Verify the doctor owns the assigned session.
+
+    # Verify the doctor owns the session and the patient
+    # belongs to the doctor's clinic.
     session = (
         db.query(IntakeSession)
+        .join(
+            PatientProfile,
+            IntakeSession.patient_id == PatientProfile.id,
+        )
+        .join(
+            User,
+            PatientProfile.user_id == User.id,
+        )
         .filter(
             IntakeSession.id == session_id,
             IntakeSession.assigned_doctor_id == current_user.id,
+            User.tenant_id == current_user.tenant_id,
         )
         .first()
     )
