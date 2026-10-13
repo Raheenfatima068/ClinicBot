@@ -13,6 +13,7 @@ from models import (
     Medication,
     Allergy,
     ClinicalSummary,
+    PatientProfile,
 )
 from dependencies import get_current_user
 from schemas import ClinicalSummaryReview
@@ -25,34 +26,63 @@ router = APIRouter(
 )
 
 
+# --------------------------------------------------
+# SOAP SUMMARY FORMATTING
+# --------------------------------------------------
+
 def clean_soap_summary(summary: str) -> str:
-    """
-    Clean common escaped Markdown formatting returned by Gemini.
-    Preserve the SOAP content rather than changing its meaning.
-    """
+    """Clean escaped Markdown and excessive whitespace."""
     if not summary:
         return ""
 
     summary = summary.strip()
 
-    # Convert escaped Markdown bold markers to normal Markdown.
+    # Convert escaped Markdown markers to normal Markdown.
     summary = summary.replace(r"\*\*", "**")
     summary = summary.replace(r"\*", "*")
     summary = summary.replace(r"\_", "_")
 
-    # Remove unnecessary whitespace.
+    # Remove trailing spaces before newlines.
     summary = re.sub(r"[ \t]+\n", "\n", summary)
+
+    # Replace three or more consecutive newlines with two.
     summary = re.sub(r"\n{3,}", "\n\n", summary)
 
     return summary.strip()
 
+
+# --------------------------------------------------
+# CLINIC / TENANT VALIDATION
+# --------------------------------------------------
+
+def require_clinic_assignment(current_user: User):
+    """Ensure the authenticated user belongs to a clinic."""
+    if current_user.tenant_id is None:
+        raise HTTPException(
+            status_code=403,
+            detail="Your account is not assigned to a clinic.",
+        )
+
+
+# --------------------------------------------------
+# PATIENT SESSION AUTHORIZATION
+# --------------------------------------------------
 
 def get_patient_session(
     session_id: int,
     current_user: User,
     db: Session,
 ):
-    """Find a session belonging to the logged-in patient."""
+    """Return an intake session belonging to this patient."""
+
+    if current_user.role != "patient":
+        raise HTTPException(
+            status_code=403,
+            detail="Patient access required.",
+        )
+
+    require_clinic_assignment(current_user)
+
     session = (
         db.query(IntakeSession)
         .join(IntakeSession.patient)
@@ -65,20 +95,100 @@ def get_patient_session(
         .first()
     )
 
-    if not session:
+    if session is None:
         raise HTTPException(
             status_code=404,
-            detail="Intake session not found",
+            detail="Intake session not found.",
+        )
+
+    # Verify that the patient and session belong to the
+    # authenticated patient's clinic.
+    if (
+        session.patient is None
+        or session.patient.user is None
+        or session.patient.user.tenant_id
+        != current_user.tenant_id
+    ):
+        raise HTTPException(
+            status_code=404,
+            detail="Intake session not found.",
         )
 
     return session
 
 
+# --------------------------------------------------
+# DOCTOR SESSION AUTHORIZATION
+# --------------------------------------------------
+
+def get_doctor_session(
+    session_id: int,
+    current_user: User,
+    db: Session,
+):
+    """Return a session assigned to this doctor in their clinic."""
+
+    if current_user.role != "doctor":
+        raise HTTPException(
+            status_code=403,
+            detail="Doctor access required.",
+        )
+
+    require_clinic_assignment(current_user)
+
+    session = (
+        db.query(IntakeSession)
+        .filter(
+            IntakeSession.id == session_id,
+
+            # Only the assigned doctor may access this session.
+            IntakeSession.assigned_doctor_id
+            == current_user.id,
+
+            # The patient must belong to the same clinic
+            # as the authenticated doctor.
+            IntakeSession.patient.has(
+                PatientProfile.user.has(
+                    User.tenant_id == current_user.tenant_id
+                )
+            ),
+        )
+        .first()
+    )
+
+    if session is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Intake session not found.",
+        )
+
+    # Additional tenant validation.
+    patient = session.patient
+
+    if (
+        patient is None
+        or patient.user is None
+        or patient.user.tenant_id
+        != current_user.tenant_id
+    ):
+        raise HTTPException(
+            status_code=404,
+            detail="Intake session not found.",
+        )
+
+    return session
+
+
+# --------------------------------------------------
+# GET SAVED SOAP SUMMARY
+# --------------------------------------------------
+
 def get_saved_summary(
     session_id: int,
     db: Session,
 ):
-    """Find the saved summary for a session."""
+    """Find the saved clinical summary for an intake session."""
+
     summary = (
         db.query(ClinicalSummary)
         .filter(
@@ -87,16 +197,25 @@ def get_saved_summary(
         .first()
     )
 
-    if not summary:
+    if summary is None:
         raise HTTPException(
             status_code=404,
-            detail="Clinical summary not found",
+            detail="Clinical summary not found.",
         )
 
     return summary
 
 
-def summary_response(session_id: int, summary: ClinicalSummary):
+# --------------------------------------------------
+# STANDARD SUMMARY RESPONSE
+# --------------------------------------------------
+
+def summary_response(
+    session_id: int,
+    summary: ClinicalSummary,
+):
+    """Return a consistent response for SOAP summary endpoints."""
+
     return {
         "session_id": session_id,
         "summary_id": summary.id,
@@ -108,9 +227,11 @@ def summary_response(session_id: int, summary: ClinicalSummary):
     }
 
 
-# ============================================================
-# POST: Generate and Save SOAP Summary
-# ============================================================
+# --------------------------------------------------
+# GENERATE SOAP SUMMARY
+# POST /ai/sessions/{session_id}/soap-summary
+# PATIENT ONLY
+# --------------------------------------------------
 
 @router.post("/sessions/{session_id}/soap-summary")
 def generate_session_summary(
@@ -165,7 +286,8 @@ def generate_session_summary(
                 session.symptom_duration or "Not provided"
             ),
             symptoms=[
-                item.symptom_name for item in symptoms
+                item.symptom_name
+                for item in symptoms
             ],
             medical_history=[
                 item.condition_name
@@ -176,13 +298,14 @@ def generate_session_summary(
                 for item in medications
             ],
             allergies=[
-                item.allergen for item in allergies
+                item.allergen
+                for item in allergies
             ],
         )
 
-        summary = clean_soap_summary(raw_summary)
+        summary_text = clean_soap_summary(raw_summary)
 
-        if not summary:
+        if not summary_text:
             raise HTTPException(
                 status_code=502,
                 detail="The AI service returned an empty summary.",
@@ -190,10 +313,14 @@ def generate_session_summary(
 
     except HTTPException:
         raise
+
     except Exception as exc:
         raise HTTPException(
             status_code=502,
-            detail="Unable to generate the clinical summary. Please try again.",
+            detail=(
+                "Unable to generate the clinical summary. "
+                "Please try again."
+            ),
         ) from exc
 
     clinical_summary = (
@@ -205,13 +332,14 @@ def generate_session_summary(
     )
 
     if clinical_summary:
-        # Update the text without silently resetting an existing
-        # doctor's review status or doctor's notes.
-        clinical_summary.summary = summary
+        # Update the summary text while preserving the
+        # existing doctor review status and notes.
+        clinical_summary.summary = summary_text
+
     else:
         clinical_summary = ClinicalSummary(
             intake_session_id=session_id,
-            summary=summary,
+            summary=summary_text,
             review_status="pending",
         )
         db.add(clinical_summary)
@@ -219,6 +347,7 @@ def generate_session_summary(
     try:
         db.commit()
         db.refresh(clinical_summary)
+
     except Exception as exc:
         db.rollback()
         raise HTTPException(
@@ -226,12 +355,17 @@ def generate_session_summary(
             detail="Unable to save the clinical summary.",
         ) from exc
 
-    return summary_response(session_id, clinical_summary)
+    return summary_response(
+        session_id,
+        clinical_summary,
+    )
 
 
-# ============================================================
-# GET: Retrieve Saved SOAP Summary
-# ============================================================
+# --------------------------------------------------
+# GET PATIENT'S OWN SOAP SUMMARY
+# GET /ai/sessions/{session_id}/soap-summary
+# PATIENT ONLY
+# --------------------------------------------------
 
 @router.get("/sessions/{session_id}/soap-summary")
 def get_saved_session_summary(
@@ -239,6 +373,7 @@ def get_saved_session_summary(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    # Patients can only access their own sessions.
     get_patient_session(
         session_id,
         current_user,
@@ -250,7 +385,7 @@ def get_saved_session_summary(
         db,
     )
 
-    # Clean legacy formatting when returning previously saved data.
+    # Clean legacy formatting if necessary.
     cleaned_summary = clean_soap_summary(
         clinical_summary.summary or ""
     )
@@ -261,31 +396,36 @@ def get_saved_session_summary(
         try:
             db.commit()
             db.refresh(clinical_summary)
+
         except Exception as exc:
             db.rollback()
             raise HTTPException(
                 status_code=500,
-                detail="Unable to update clinical summary formatting.",
+                detail=(
+                    "Unable to update clinical summary formatting."
+                ),
             ) from exc
 
-    return summary_response(session_id, clinical_summary)
+    return summary_response(
+        session_id,
+        clinical_summary,
+    )
 
 
-# ============================================================
-# PUT: Update Clinical Summary Review
-# ============================================================
+# --------------------------------------------------
+# GET DOCTOR'S ASSIGNED SOAP SUMMARY
+# GET /ai/sessions/{session_id}/doctor-soap-summary
+# ASSIGNED DOCTOR IN THE SAME CLINIC ONLY
+# --------------------------------------------------
 
-@router.put("/sessions/{session_id}/soap-summary/review")
-def review_session_summary(
+@router.get("/sessions/{session_id}/doctor-soap-summary")
+def get_doctor_session_summary(
     session_id: int,
-    review_data: ClinicalSummaryReview,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    # This endpoint retains the patient-ownership check from your
-    # original code. Use the existing doctor-specific review
-    # endpoint for doctor accounts.
-    get_patient_session(
+    # Verify doctor role, session assignment, and tenant.
+    get_doctor_session(
         session_id,
         current_user,
         db,
@@ -296,20 +436,37 @@ def review_session_summary(
         db,
     )
 
-    allowed_statuses = {
-        "pending",
-        "reviewed",
-        "approved",
-    }
+    return summary_response(
+        session_id,
+        clinical_summary,
+    )
 
-    if review_data.review_status not in allowed_statuses:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "Invalid review status. Allowed values: "
-                "pending, reviewed, approved"
-            ),
-        )
+
+# --------------------------------------------------
+# REVIEW SOAP SUMMARY
+# PUT /ai/sessions/{session_id}/soap-summary/review
+# ASSIGNED DOCTOR IN THE SAME CLINIC ONLY
+# --------------------------------------------------
+
+@router.put("/sessions/{session_id}/soap-summary/review")
+def review_session_summary(
+    session_id: int,
+    review_data: ClinicalSummaryReview,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    # Verify doctor role, assignment, and tenant before
+    # allowing changes to the clinical summary.
+    get_doctor_session(
+        session_id,
+        current_user,
+        db,
+    )
+
+    clinical_summary = get_saved_summary(
+        session_id,
+        db,
+    )
 
     clinical_summary.review_status = review_data.review_status
     clinical_summary.doctor_notes = review_data.doctor_notes
@@ -317,6 +474,7 @@ def review_session_summary(
     try:
         db.commit()
         db.refresh(clinical_summary)
+
     except Exception as exc:
         db.rollback()
         raise HTTPException(
@@ -324,4 +482,7 @@ def review_session_summary(
             detail="Unable to save the review.",
         ) from exc
 
-    return summary_response(session_id, clinical_summary)
+    return summary_response(
+        session_id,
+        clinical_summary,
+    )

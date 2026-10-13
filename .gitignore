@@ -12,3 +12,17 @@ backend/clinicbot_backup_*.dump
 # Temporary frontend backups
 frontend/src/app/**/*.backup.tsx
 frontend/src/app/**/*.step1-backup.tsx
+
+# Python generated files and virtual environments
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Local secrets
+.env
+.env.*
+!.env.example
+
+# Runtime logs
+*.log

@@ -1,6 +1,7 @@
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import SQLAlchemyError
 
 from database import get_db
 from models import User, PatientProfile, IntakeSession
@@ -9,17 +10,18 @@ from dependencies import get_current_user
 
 router = APIRouter(
     prefix="/intake",
-    tags=["Intake Sessions"]
+    tags=["Intake Sessions"],
 )
 
 
 def find_suitable_doctor(
     chief_complaint: str | None,
-    db: Session
+    db: Session,
+    tenant_id: int,
 ) -> User | None:
     """
-    Select a doctor based on the reported complaint.
-    This is routing only, not medical diagnosis.
+    Select a doctor from the patient's clinic based on the
+    reported complaint. This is routing, not medical diagnosis.
     """
 
     complaint = (chief_complaint or "").strip().lower()
@@ -27,32 +29,36 @@ def find_suitable_doctor(
     specialty_keywords = {
         "Cardiology": [
             "chest pain", "palpitations", "heart pain",
-            "heart racing", "heartbeat"
+            "heart racing", "heartbeat",
         ],
         "Neurology": [
             "headache", "migraine", "dizziness", "seizure",
-            "numbness", "tingling"
+            "numbness", "tingling",
         ],
         "Dermatology": [
-            "rash", "itching", "skin", "acne", "eczema"
+            "rash", "itching", "skin", "acne", "eczema",
         ],
         "Respiratory Medicine": [
             "cough", "breathing", "shortness of breath",
-            "wheezing", "asthma"
+            "wheezing", "asthma",
         ],
         "Gastroenterology": [
             "stomach pain", "abdominal pain", "nausea",
-            "vomiting", "diarrhea", "constipation"
+            "vomiting", "diarrhea", "constipation",
         ],
         "Orthopedics": [
             "joint pain", "back pain", "bone pain",
-            "knee pain", "fracture"
+            "knee pain", "fracture",
         ],
     }
 
+    # Only doctors belonging to this patient's clinic are eligible.
     doctors = (
         db.query(User)
-        .filter(User.role == "doctor")
+        .filter(
+            User.role == "doctor",
+            User.tenant_id == tenant_id,
+        )
         .order_by(User.id)
         .all()
     )
@@ -68,7 +74,7 @@ def find_suitable_doctor(
                     if (doctor.specialty or "").strip().lower()
                     == specialty.lower()
                 ),
-                None
+                None,
             )
 
             if matching_doctor:
@@ -86,13 +92,13 @@ def find_suitable_doctor(
             if (doctor.specialty or "").strip().lower()
             in general_specialties
         ),
-        None
+        None,
     )
 
     if general_doctor:
         return general_doctor
 
-    # Fallback if no specialty matches.
+    # Preserve the existing fallback within the same clinic.
     return doctors[0]
 
 
@@ -101,38 +107,42 @@ def create_intake_session(
     chief_complaint: str | None = None,
     symptom_duration: str | None = None,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
-    # Only patients may create intake sessions.
     if current_user.role != "patient":
         raise HTTPException(
             status_code=403,
-            detail="Only patients can create intake sessions"
+            detail="Only patients can create intake sessions",
+        )
+
+    if current_user.tenant_id is None:
+        raise HTTPException(
+            status_code=403,
+            detail="Your account is not assigned to a clinic",
         )
 
     profile = (
         db.query(PatientProfile)
-        .filter(
-            PatientProfile.user_id == current_user.id
-        )
+        .filter(PatientProfile.user_id == current_user.id)
         .first()
     )
 
     if not profile:
         raise HTTPException(
             status_code=404,
-            detail="Patient profile not found"
+            detail="Patient profile not found",
         )
 
     assigned_doctor = find_suitable_doctor(
-        chief_complaint,
-        db
+        chief_complaint=chief_complaint,
+        db=db,
+        tenant_id=current_user.tenant_id,
     )
 
     if assigned_doctor is None:
         raise HTTPException(
             status_code=503,
-            detail="No doctor is available. Please try again later."
+            detail="No doctor is available in your clinic. Please try again later.",
         )
 
     session = IntakeSession(
@@ -140,18 +150,18 @@ def create_intake_session(
         assigned_doctor_id=assigned_doctor.id,
         status="active",
         chief_complaint=chief_complaint,
-        symptom_duration=symptom_duration
+        symptom_duration=symptom_duration,
     )
 
     try:
         db.add(session)
         db.commit()
         db.refresh(session)
-    except Exception:
+    except SQLAlchemyError:
         db.rollback()
         raise HTTPException(
             status_code=500,
-            detail="Unable to create intake session"
+            detail="Unable to create intake session",
         )
 
     return {
@@ -161,49 +171,49 @@ def create_intake_session(
         "assigned_doctor": {
             "id": assigned_doctor.id,
             "name": assigned_doctor.full_name,
-            "specialty": assigned_doctor.specialty
+            "specialty": assigned_doctor.specialty,
         },
         "status": session.status,
         "chief_complaint": session.chief_complaint,
         "symptom_duration": session.symptom_duration,
-        "created_at": session.created_at
+        "created_at": session.created_at,
     }
 
 
 @router.get("/sessions")
 def get_intake_sessions(
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
-    # Only patients may access their patient intake history.
     if current_user.role != "patient":
         raise HTTPException(
             status_code=403,
-            detail="Only patients can access their intake history"
+            detail="Only patients can access their intake history",
+        )
+
+    if current_user.tenant_id is None:
+        raise HTTPException(
+            status_code=403,
+            detail="Your account is not assigned to a clinic",
         )
 
     profile = (
         db.query(PatientProfile)
-        .filter(
-            PatientProfile.user_id == current_user.id
-        )
+        .filter(PatientProfile.user_id == current_user.id)
         .first()
     )
 
     if not profile:
         raise HTTPException(
             status_code=404,
-            detail="Patient profile not found"
+            detail="Patient profile not found",
         )
 
     sessions = (
         db.query(IntakeSession)
-        .filter(
-            IntakeSession.patient_id == profile.id
-        )
+        .filter(IntakeSession.patient_id == profile.id)
         .order_by(IntakeSession.id.desc())
         .all()
     )
 
     return sessions
-
