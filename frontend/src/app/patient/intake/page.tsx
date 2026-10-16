@@ -24,6 +24,14 @@ type ApiResponse = {
   answer?: string;
 };
 
+type IntakeSession = {
+  id: number;
+  patient_id: number;
+  chief_complaint: string | null;
+  symptom_duration: string | null;
+  status: string;
+};
+
 type ClinicalSummaryResponse = {
   session_id: number;
   summary_id: number;
@@ -34,7 +42,7 @@ type ClinicalSummaryResponse = {
   updated_at?: string;
 };
 
-const API_BASE_URL = "http://127.0.0.1:8000";
+const API_BASE_URL = "http://127.0.0.1:8001";
 
 const progressMap: Record<string, number> = {
   chief_complaint: 15,
@@ -121,11 +129,12 @@ export default function PatientIntakePage() {
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [summaryMessage, setSummaryMessage] = useState("");
 
-  // Prevent repeated session creation during ordinary rerenders
-  // and React development effect replay.
+  const [existingSessionView, setExistingSessionView] =
+    useState(false);
+
   const sessionStartRef = useRef(false);
 
-    // Restore the patient's login token.
+  // Restore the patient's login token.
   useEffect(() => {
     let cancelled = false;
 
@@ -139,7 +148,6 @@ export default function PatientIntakePage() {
         return;
       }
 
-      // Defer the state update until after the effect's synchronous work.
       await Promise.resolve();
 
       if (!cancelled) {
@@ -154,11 +162,13 @@ export default function PatientIntakePage() {
     };
   }, [router]);
 
-  // Load or generate the clinical summary for this session.
+  // Retrieve a saved clinical summary.
+  // Existing sessions are read-only: do not generate a new summary.
   const fetchClinicalSummary = useCallback(
     async (
       accessToken: string,
-      currentSessionId: number
+      currentSessionId: number,
+      generateIfMissing = true
     ) => {
       setSummaryLoading(true);
       setSummaryMessage("");
@@ -180,7 +190,6 @@ export default function PatientIntakePage() {
         });
 
         if (response.status === 404) {
-          // Distinguish a nonexistent session from a missing summary.
           const missingBody = await response
             .clone()
             .json()
@@ -193,18 +202,26 @@ export default function PatientIntakePage() {
 
           if (detail.includes("session not found")) {
             throw new Error(
-              "This intake session was not found. Please start a new intake."
+              "This intake session was not found."
             );
           }
 
-          // No saved summary: ask the backend to generate one.
+          if (!generateIfMissing) {
+            throw new Error(
+              "The saved clinical summary could not be found."
+            );
+          }
+
+          // Generate a summary only for a new intake workflow.
           const generateResponse = await fetch(summaryUrl, {
             method: "POST",
             headers,
           });
 
           if (!generateResponse.ok) {
-            const body = await readApiResponse(generateResponse);
+            const body = await readApiResponse(
+              generateResponse
+            );
 
             throw new Error(
               getErrorMessage(
@@ -272,7 +289,7 @@ export default function PatientIntakePage() {
     []
   );
 
-  // Retrieve the next question for the current session.
+  // Load the next question for a new intake.
   const getNextQuestion = useCallback(
     async (
       accessToken: string,
@@ -343,7 +360,132 @@ export default function PatientIntakePage() {
     [fetchClinicalSummary]
   );
 
-  // Create one intake session and load its first question.
+  // Reopen an existing session without creating another one.
+  const loadExistingSession = useCallback(
+    async (
+      accessToken: string,
+      existingSessionId: number
+    ) => {
+      try {
+        setLoading(true);
+        setError("");
+        setAnswer("");
+        setSessionId(null);
+        setProgress(0);
+        setCompleted(false);
+        setClinicalSummary(null);
+        setSummaryMessage("");
+        setQuestion("Loading saved clinical summary...");
+
+        const response = await fetch(
+          `${API_BASE_URL}/intake/sessions`,
+          {
+            method: "GET",
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              Accept: "application/json",
+            },
+            cache: "no-store",
+          }
+        );
+
+        if (!response.ok) {
+          const data = await readApiResponse(response);
+
+          if (response.status === 401) {
+            throw new Error(
+              "Your login session has expired. Please log in again."
+            );
+          }
+
+          throw new Error(
+            getErrorMessage(
+              data,
+              `Unable to load your sessions (${response.status}).`
+            )
+          );
+        }
+
+        const sessions =
+          (await response.json()) as IntakeSession[];
+
+        if (!Array.isArray(sessions)) {
+          throw new Error(
+            "The server returned an invalid session list."
+          );
+        }
+
+        const existingSession = sessions.find(
+          (session) => session.id === existingSessionId
+        );
+
+        if (!existingSession) {
+          throw new Error(
+            `Session #${existingSessionId} was not found in your patient account.`
+          );
+        }
+
+                setSessionId(existingSession.id);
+
+        // Check the actual completion status with the backend.
+        const questionResponse = await fetch(
+          `${API_BASE_URL}/conversation/sessions/${existingSession.id}/next-question`,
+          {
+            method: "GET",
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              Accept: "application/json",
+            },
+            cache: "no-store",
+          }
+        );
+
+        const questionData = await readApiResponse(questionResponse);
+
+        if (!questionResponse.ok) {
+          throw new Error(
+            getErrorMessage(
+              questionData,
+              "Unable to check the saved intake status."
+            )
+          );
+        }
+
+        if (
+          !questionData?.field ||
+          typeof questionData.field !== "string"
+        ) {
+          throw new Error(
+            "The server returned an invalid intake status."
+          );
+        }
+
+        setQuestion(questionData.question ?? "Saved intake session");
+        setCompleted(questionData.field === "complete");
+        setProgress(progressMap[questionData.field] ?? 0);
+
+        // Load the saved summary only if the intake is complete.
+        if (questionData.field === "complete") {
+          await fetchClinicalSummary(
+            accessToken,
+            existingSession.id,
+            false
+          );
+        }
+      } catch (err) {
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Unable to reopen the saved intake session."
+        );
+      } finally {
+        setLoading(false);
+      }
+    },
+    [fetchClinicalSummary]
+  );
+
+  // Create a session for a genuinely new intake.
   const createSession = useCallback(
     async (accessToken: string) => {
       try {
@@ -355,6 +497,7 @@ export default function PatientIntakePage() {
         setCompleted(false);
         setClinicalSummary(null);
         setSummaryMessage("");
+        setExistingSessionView(false);
 
         const response = await fetch(
           `${API_BASE_URL}/intake/sessions`,
@@ -394,7 +537,6 @@ export default function PatientIntakePage() {
 
         await getNextQuestion(accessToken, data.id);
       } catch (err) {
-        // Allow the patient to retry after a failed request.
         sessionStartRef.current = false;
 
         setError(
@@ -409,29 +551,80 @@ export default function PatientIntakePage() {
     [getNextQuestion]
   );
 
-  // Start the intake once after restoring the login token.
+  // Open a requested session when session_id is in the URL.
+  // Otherwise, start the normal new-intake workflow.
   useEffect(() => {
     if (!token || sessionStartRef.current) {
       return;
     }
 
     sessionStartRef.current = true;
-    void createSession(token);
-  }, [token, createSession]);
 
-  // Retry session creation if the initial request failed.
+    const requestedSessionId = new URLSearchParams(
+      window.location.search
+    ).get("session_id");
+
+    if (requestedSessionId !== null) {
+      setExistingSessionView(true);
+
+      const parsedSessionId = Number(requestedSessionId);
+
+      if (
+        !Number.isSafeInteger(parsedSessionId) ||
+        parsedSessionId <= 0
+      ) {
+        setError("The requested session ID is invalid.");
+        setLoading(false);
+        return;
+      }
+
+      void loadExistingSession(token, parsedSessionId);
+      return;
+    }
+
+    setExistingSessionView(false);
+    void createSession(token);
+  }, [token, createSession, loadExistingSession]);
+
+  // Retry the same operation rather than accidentally creating a new session.
   function retrySession() {
     if (!token || loading) return;
+
+    const requestedSessionId = new URLSearchParams(
+      window.location.search
+    ).get("session_id");
+
+    if (requestedSessionId !== null) {
+      const parsedSessionId = Number(requestedSessionId);
+
+      if (
+        Number.isSafeInteger(parsedSessionId) &&
+        parsedSessionId > 0
+      ) {
+        void loadExistingSession(token, parsedSessionId);
+      } else {
+        setError("The requested session ID is invalid.");
+      }
+
+      return;
+    }
 
     sessionStartRef.current = true;
     void createSession(token);
   }
 
-  // Submit the patient's current answer.
+  // Submit answers only during a new intake.
   async function submitAnswer(
     event: FormEvent<HTMLFormElement>
   ) {
     event.preventDefault();
+
+    if (existingSessionView) {
+      setError(
+        "This is a saved intake session and cannot be edited here."
+      );
+      return;
+    }
 
     if (!token || sessionId === null) {
       setError("Your intake session is not available.");
@@ -478,7 +671,6 @@ export default function PatientIntakePage() {
       }
 
       setAnswer("");
-
       await getNextQuestion(token, sessionId);
     } catch (err) {
       setError(
@@ -549,7 +741,13 @@ export default function PatientIntakePage() {
               </p>
             </div>
 
-            <span className="rounded-full bg-teal-50 px-3 py-1 text-xs font-semibold text-teal-700">
+            <span
+              className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                completed
+                  ? "bg-green-100 text-green-700"
+                  : "bg-teal-50 text-teal-700"
+              }`}
+            >
               {completed ? "Completed" : "In progress"}
             </span>
           </div>
@@ -568,7 +766,7 @@ export default function PatientIntakePage() {
             />
           </div>
 
-          <div className="mb-5 flex justify-between text-xs text-slate-500">
+          <div className="mb-6 flex justify-between text-xs text-slate-500">
             <span>Start</span>
             <span>{progress}% complete</span>
           </div>
@@ -596,7 +794,7 @@ export default function PatientIntakePage() {
                 <button
                   type="button"
                   onClick={logout}
-                  className="mt-3 ml-2 rounded-lg border border-red-300 px-4 py-2 font-medium hover:bg-red-100"
+                  className="ml-2 mt-3 rounded-lg border border-red-300 px-4 py-2 font-medium hover:bg-red-100"
                 >
                   Log in again
                 </button>
@@ -612,7 +810,9 @@ export default function PatientIntakePage() {
               />
 
               <p className="font-medium text-slate-700">
-                Preparing your intake session...
+                {existingSessionView
+                  ? "Loading your saved intake..."
+                  : "Preparing your intake session..."}
               </p>
 
               <p className="mt-2 text-sm text-slate-500">
@@ -627,8 +827,10 @@ export default function PatientIntakePage() {
                 </h3>
 
                 <p className="mt-2 text-sm leading-6 text-green-800">
-                  Thank you. Your answers have been submitted.
-                  Your clinical summary is shown below when available.
+                  {existingSessionView
+                    ? "This is your saved intake session. Your original answers and clinical summary have not been changed."
+                    : "Thank you. Your answers have been submitted. Your clinical summary is shown below when available."}
+                  {" "}
                   Your doctor should review the information before
                   making clinical decisions.
                 </p>
@@ -686,7 +888,11 @@ export default function PatientIntakePage() {
                       <button
                         type="button"
                         onClick={() =>
-                          void fetchClinicalSummary(token, sessionId)
+                          void fetchClinicalSummary(
+                            token,
+                            sessionId,
+                            !existingSessionView
+                          )
                         }
                         disabled={summaryLoading}
                         className="mt-3 rounded-lg bg-teal-700 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-800 disabled:opacity-50"
@@ -699,7 +905,7 @@ export default function PatientIntakePage() {
               </div>
 
               <p className="text-xs leading-5 text-slate-500">
-                This summary is intended to support your clinician.
+                This summary supports clinical documentation.
                 It is not a diagnosis or a substitute for medical advice.
               </p>
             </div>
@@ -738,9 +944,7 @@ export default function PatientIntakePage() {
                   }
                   className="inline-flex min-w-32 items-center justify-center rounded-xl bg-teal-700 px-5 py-3 text-sm font-semibold text-white transition hover:bg-teal-800 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  {submitting
-                    ? "Saving..."
-                    : "Continue"}
+                  {submitting ? "Saving..." : "Continue"}
                 </button>
               </div>
             </form>

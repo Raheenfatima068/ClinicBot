@@ -224,6 +224,7 @@ def submit_answer(
         db=db,
     )
 
+
     answer = answer.strip()
 
     if not answer:
@@ -231,6 +232,13 @@ def submit_answer(
             status_code=422,
             detail="Answer cannot be empty.",
         )
+
+    if len(answer) > 2000:
+        raise HTTPException(
+            status_code=422,
+            detail="Answer must not exceed 2000 characters.",
+        )
+
 
     try:
         # Step 1: Save the chief complaint.

@@ -1,4 +1,5 @@
 
+import logging
 import re
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -18,8 +19,9 @@ from models import (
 from dependencies import get_current_user
 from schemas import ClinicalSummaryReview
 from services.gemini_service import generate_soap_summary
+from services.intake_logic import can_change_status
 
-
+logger = logging.getLogger(__name__)
 router = APIRouter(
     prefix="/ai",
     tags=["AI Summary"],
@@ -448,6 +450,7 @@ def get_doctor_session_summary(
 # ASSIGNED DOCTOR IN THE SAME CLINIC ONLY
 # --------------------------------------------------
 
+
 @router.put("/sessions/{session_id}/soap-summary/review")
 def review_session_summary(
     session_id: int,
@@ -455,8 +458,7 @@ def review_session_summary(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    # Verify doctor role, assignment, and tenant before
-    # allowing changes to the clinical summary.
+    # Verify doctor role, assignment, and clinic access.
     get_doctor_session(
         session_id,
         current_user,
@@ -468,15 +470,46 @@ def review_session_summary(
         db,
     )
 
-    clinical_summary.review_status = review_data.review_status
+    current_status = clinical_summary.review_status
+    new_status = review_data.review_status
+
+    # Prevent invalid status transitions.
+    if current_status != new_status and not can_change_status(
+        current_status,
+        new_status,
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Cannot change review status from "
+                f"'{current_status}' to '{new_status}'."
+            ),
+        )
+
+    # Require meaningful notes for completed reviews.
+    if new_status in {"reviewed", "approved"} and not (
+        review_data.doctor_notes or ""
+    ).strip():
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Doctor notes are required before marking "
+                "a summary as reviewed or approved."
+            ),
+        )
+
+    clinical_summary.review_status = new_status
     clinical_summary.doctor_notes = review_data.doctor_notes
 
     try:
         db.commit()
         db.refresh(clinical_summary)
-
     except Exception as exc:
         db.rollback()
+        logger.exception(
+            "Unable to save clinical summary review for session %s.",
+            session_id,
+        )
         raise HTTPException(
             status_code=500,
             detail="Unable to save the review.",
