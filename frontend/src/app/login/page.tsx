@@ -28,7 +28,7 @@ export default function LoginPage() {
     try {
       // Step 1: Login
       const loginResponse = await fetch(
-        "http://127.0.0.1:8000/auth/login",
+        "http://127.0.0.1:8001/auth/login",
         {
           method: "POST",
           headers: {
@@ -58,7 +58,7 @@ export default function LoginPage() {
 
       // Step 2: Get logged-in user's role
       const meResponse = await fetch(
-        "http://127.0.0.1:8000/auth/me",
+        "http://127.0.0.1:8001/auth/me",
         {
           method: "GET",
           headers: {

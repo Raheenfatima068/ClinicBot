@@ -1,12 +1,6 @@
 
-from pydantic import (
-    BaseModel,
-    EmailStr,
-    ConfigDict,
-    Field,
-    field_validator,
-)
-
+from typing import Literal
+from pydantic import BaseModel, EmailStr, ConfigDict, Field, field_validator
 
 class UserRegister(BaseModel):
     full_name: str = Field(min_length=1, max_length=100)
@@ -66,18 +60,19 @@ class TokenResponse(BaseModel):
 # ============================================================
 
 class ClinicalSummaryReview(BaseModel):
-    review_status: str
-    doctor_notes: str | None = None
+    review_status: Literal["pending", "reviewed", "approved"]
+    doctor_notes: str | None = Field(default=None, max_length=5000)
 
-    @field_validator("review_status")
+    @field_validator("review_status", mode="before")
     @classmethod
-    def validate_review_status(cls, value: str) -> str:
-        value = value.strip().lower()
-        allowed_statuses = {"pending", "reviewed", "approved"}
+    def normalize_review_status(cls, value):
+        if isinstance(value, str):
+            return value.strip().lower()
+        return value
 
-        if value not in allowed_statuses:
-            raise ValueError(
-                "Review status must be pending, reviewed, or approved."
-            )
-
+    @field_validator("doctor_notes")
+    @classmethod
+    def trim_doctor_notes(cls, value):
+        if value is not None:
+            return value.strip()
         return value

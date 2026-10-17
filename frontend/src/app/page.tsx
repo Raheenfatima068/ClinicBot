@@ -149,7 +149,8 @@ export default function DoctorDashboard() {
       const queryString = params.toString();
 
       const response = await fetch(
-        `http://127.0.0.1:8000/doctor/dashboard${
+        `http://127.0.0.1:8001/doctor/dashboard${
+
           queryString ? `?${queryString}` : ""
         }`,
         {
@@ -254,7 +255,7 @@ export default function DoctorDashboard() {
 
     try {
       const response = await fetch(
-        `http://127.0.0.1:8000/doctor/sessions/${selectedSession.intake_session.session_id}/review`,
+        `http://127.0.0.1:8001/doctor/sessions/${selectedSession.intake_session.session_id}/review`,
         {
           method: "PUT",
           headers: {
@@ -563,90 +564,108 @@ export default function DoctorDashboard() {
     )}
 
     <div
-  className={`min-h-screen transition-colors duration-300 ${
+  className={`min-h-screen font-sans text-[16px] antialiased transition-colors duration-300 ${
     darkMode
       ? "bg-[#252827] text-[#F5F0E6]"
       : "bg-[#F5F0E6] text-[#303735]"
   }`}
 >
-      {/* Sidebar */}
-      <aside
-  className={`fixed inset-y-0 left-0 z-30 hidden w-64 border-r transition-colors duration-300 lg:flex lg:flex-col ${
-    darkMode
-      ? "border-slate-700 bg-[#202523]"
-      : "border-[#DED8CA] bg-[#EDE6D8]"
-  }`}
->
+            {/* Sidebar */}
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 border-r border-slate-800 bg-slate-950 lg:flex lg:flex-col">
+        {/* Brand */}
         <div className="flex h-20 items-center border-b border-slate-800 px-6">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-teal-400 text-lg font-bold text-slate-950">
             C
           </div>
 
           <div className="ml-3">
-            <h1 className="text-lg font-bold text-white">
-              ClinicBot
-            </h1>
-
-            <p className="text-[11px] text-slate-500">
+            <h1 className="text-lg font-bold text-white">ClinicBot</h1>
+            <p className="text-xs text-slate-400">
               Clinical Intake Agent
             </p>
           </div>
         </div>
 
+        {/* Navigation */}
         <nav className="flex-1 px-4 py-6">
-          <p className="mb-3 px-3 text-[10px] font-bold uppercase tracking-widest text-slate-600">
+          <p className="mb-3 px-3 text-xs font-bold uppercase tracking-widest text-slate-500">
             Workspace
           </p>
 
           <button
+            type="button"
             onClick={() => {
               setReviewStatus("");
               fetchDashboard(search, "");
             }}
-            className="flex w-full items-center gap-3 rounded-xl bg-teal-400/10 px-3 py-3 text-sm font-semibold text-teal-300"
+            className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold transition ${
+              reviewStatus === ""
+                ? "bg-teal-400/10 text-teal-300"
+                : "text-slate-300 hover:bg-slate-800 hover:text-white"
+            }`}
           >
-            <span className="text-lg">⌂</span>
+            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-slate-800 text-xs font-bold">
+              01
+            </span>
             Dashboard
           </button>
 
           <button
+            type="button"
             onClick={() => {
               setReviewStatus("pending");
               fetchDashboard(search, "pending");
             }}
-            className={`mt-2 flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition-all duration-200 hover:translate-x-1 hover:shadow-sm ${
-  darkMode
-    ? "text-slate-300 hover:bg-teal-900/40 hover:text-teal-200"
-    : "text-[#525B56] hover:bg-[#D8E9E3] hover:text-[#0F766E]"
-}`}
+            className={`mt-2 flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition ${
+              reviewStatus === "pending"
+                ? "bg-teal-400/10 text-teal-300"
+                : "text-slate-300 hover:bg-slate-800 hover:text-white"
+            }`}
           >
-            <span className="text-lg">◷</span>
+            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-slate-800 text-xs font-bold">
+              02
+            </span>
             Pending Reviews
           </button>
 
           <button
+            type="button"
             onClick={() => {
               setReviewStatus("reviewed");
               fetchDashboard(search, "reviewed");
             }}
-            className="mt-2 flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium text-slate-400 transition hover:bg-slate-900 hover:text-white"
+            className={`mt-2 flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition ${
+              reviewStatus === "reviewed"
+                ? "bg-teal-400/10 text-teal-300"
+                : "text-slate-300 hover:bg-slate-800 hover:text-white"
+            }`}
           >
-            <span className="text-lg">✓</span>
+            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-slate-800 text-xs font-bold">
+              03
+            </span>
             Reviewed
           </button>
 
           <button
+            type="button"
             onClick={() => {
               setReviewStatus("approved");
               fetchDashboard(search, "approved");
             }}
-            className="mt-2 flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium text-slate-400 transition hover:bg-slate-900 hover:text-white"
+            className={`mt-2 flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition ${
+              reviewStatus === "approved"
+                ? "bg-teal-400/10 text-teal-300"
+                : "text-slate-300 hover:bg-slate-800 hover:text-white"
+            }`}
           >
-            <span className="text-lg">◆</span>
+            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-slate-800 text-xs font-bold">
+              04
+            </span>
             Approved
           </button>
         </nav>
 
+        {/* Doctor profile and controls */}
         <div className="border-t border-slate-800 p-4">
           <div className="mb-3 rounded-xl bg-slate-900 p-3">
             <div className="flex items-center gap-3">
@@ -660,19 +679,33 @@ export default function DoctorDashboard() {
                 <p className="truncate text-sm font-semibold text-white">
                   {dashboard?.doctor.name || "Doctor"}
                 </p>
-
-                <p className="text-xs text-slate-500">
-                  Doctor
-                </p>
+                <p className="text-xs text-slate-400">Doctor</p>
               </div>
             </div>
           </div>
 
+          {/* Night Mode toggle */}
           <button
-            onClick={logout}
-            className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium text-slate-400 transition hover:bg-red-500/10 hover:text-red-400"
+            type="button"
+            onClick={() => setDarkMode((current) => !current)}
+            className="mb-2 flex w-full items-center justify-between rounded-xl border border-slate-700 px-3 py-3 text-sm font-medium text-slate-200 transition hover:border-teal-400 hover:bg-slate-800"
+            aria-label={darkMode ? "Switch to light mode" : "Switch to night mode"}
           >
-            <span>↪</span>
+            <span>{darkMode ? "Light mode" : "Night mode"}</span>
+            <span className="text-xs text-teal-300">
+              {darkMode ? "ON" : "OFF"}
+            </span>
+          </button>
+
+          {/* Sign out */}
+          <button
+            type="button"
+            onClick={logout}
+            className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium text-slate-300 transition hover:bg-red-500/10 hover:text-red-400"
+          >
+            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-slate-800 text-xs">
+              X
+            </span>
             Sign out
           </button>
         </div>
@@ -695,7 +728,7 @@ export default function DoctorDashboard() {
     </span>
   </h2>
 
-  <p className="mt-1 text-sm text-slate-500">
+  <p className="mt-1 text-base leading-6 text-slate-500">
     Review patient intake information and AI-assisted clinical summaries.
   </p>
 </div>
@@ -723,7 +756,7 @@ export default function DoctorDashboard() {
           }
           className="hidden rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-600 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 sm:block"
           >
-                ↻ Refresh
+                Refresh
               </button>
 
               <div className="hidden h-8 w-px bg-slate-200 sm:block" />
@@ -811,48 +844,29 @@ export default function DoctorDashboard() {
     darkMode ? "text-[#F5F0E6]" : "text-[#303735]"
   }`}
 >
-          {/* Welcome */}
-          <div className="mb-8">
-            <p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-teal-600">
-              Clinical workspace
-            </p>
 
-            <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
-              Good to see you,{" "}
-              {dashboard?.doctor.name
-                ? dashboard.doctor.name.replace("Dr. ", "")
-                : "Doctor"}
-            </h1>
-
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
-              Review patient intake information and
-              AI-assisted clinical summaries before
-              consultation.
-            </p>
-          </div>
-
-          {error && (
-            <div className="mb-6 rounded-2xl border border-red-200 bg-red-50 p-4">
-              <p className="text-sm font-medium text-red-700">
-                {error}
-              </p>
-            </div>
-          )}{/* Dashboard Overview */}
+{error && (
+  <div className="mb-6 rounded-2xl border border-red-200 bg-red-50 p-4">
+    <p className="text-sm font-medium text-red-700">
+      {error}
+    </p>
+  </div>
+)}{/* Dashboard Overview */}
 <div className="mb-8 grid gap-6 xl:grid-cols-2">
   {/* Common Complaints */}
   <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
     <div className="flex items-center justify-between">
       <div>
-        <h3 className="text-base font-bold text-slate-900">
+        <h3 className="text-xl font-bold tracking-tight text-slate-900">
           Common Complaints
         </h3>
-        <p className="mt-1 text-xs text-slate-500">
+        <p className="mt-1 text-base leading-6 text-slate-500">
           Most reported patient complaints
         </p>
       </div>
 
       <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-teal-50 text-teal-700">
-        <span className="text-sm">▥</span>
+        <span className="text-lg font-bold">✚</span>
       </div>
     </div>
 
@@ -865,7 +879,7 @@ export default function DoctorDashboard() {
               className="flex items-center justify-between gap-4"
             >
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold text-slate-800">
+                <p className="truncate text-base font-semibold text-slate-800">
                   {complaint}
                 </p>
 
@@ -908,16 +922,16 @@ export default function DoctorDashboard() {
   <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
     <div className="flex items-center justify-between">
       <div>
-        <h3 className="text-base font-bold text-slate-900">
+        <h3 className="text-xl font-bold tracking-tight text-slate-900">
           Review Activity
         </h3>
-        <p className="mt-1 text-xs text-slate-500">
+        <p className="mt-1 text-base leading-6 text-slate-500">
           Latest clinical summary updates
         </p>
       </div>
 
       <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-50 text-blue-700">
-        <span className="text-sm">◷</span>
+        <span className="text-lg font-bold">✓</span>
       </div>
     </div>
 
@@ -932,16 +946,12 @@ export default function DoctorDashboard() {
               className="flex items-center justify-between gap-4 rounded-xl border border-slate-100 bg-slate-50/70 px-4 py-3"
             >
               <div className="min-w-0">
-                <p className="truncate text-sm font-semibold text-slate-800">
+                <p className="truncate text-base font-semibold text-slate-800">
                   {session.patient.full_name}
                 </p>
 
-                <p className="mt-1 truncate text-xs text-slate-500">
-                  Session #{session.intake_session.session_id}
-                  {" · "}
-                  {summary?.updated_at
-                    ? new Date(summary.updated_at).toLocaleDateString()
-                    : "Recently updated"}
+                <p className="mt-1 text-sm leading-5 text-slate-500">
+                  Session #{session.intake_session.session_id} · {formatDate(summary?.updated_at || session.intake_session.created_at)}
                 </p>
               </div>
 
@@ -984,7 +994,7 @@ export default function DoctorDashboard() {
   }`}
 >
 
-    <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
+    <div className="flex flex-col gap-5 2xl:flex-row 2xl:items-center 2xl:justify-between">
       <div>
         <div className="flex items-center gap-2">
           <h2 className="text-lg font-bold text-slate-900">
@@ -996,7 +1006,7 @@ export default function DoctorDashboard() {
           </span>
         </div>
 
-        <p className="mt-1 text-sm text-slate-500">
+        <p className="mt-1 text-base leading-6 text-slate-500">
           Review patient information and AI-assisted clinical summaries.
         </p>
       </div>
@@ -1004,29 +1014,28 @@ export default function DoctorDashboard() {
 
 
       {/* Search + Filter */}
-      <div className="flex flex-col gap-3 sm:flex-row">
+      <div className="flex w-full min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-end 2xl:w-auto 2xl:flex-nowrap">
         <form
           onSubmit={handleSearch}
-          className="relative"
+          className="relative min-w-0 w-full sm:w-72 sm:flex-none"
         >
-          <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400">
+          <span aria-hidden="true" className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-lg text-slate-400">
             ⌕
           </span>
-
           <input
             value={search}
             onChange={(event) =>
               setSearch(event.target.value)
             }
             placeholder="Search patient..."
-            className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pl-10 pr-4 text-sm text-slate-900 outline-none transition focus:border-teal-500 focus:bg-white focus:ring-4 focus:ring-teal-500/10 sm:w-64"
+            className="block w-full min-w-0 rounded-xl border border-slate-200 bg-slate-50 py-3 pl-10 pr-4 text-base leading-6 text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-teal-500 focus:bg-white focus:ring-4 focus:ring-teal-500/10"
           />
         </form>
 
         <select
           value={reviewStatus}
           onChange={handleStatusChange}
-          className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-medium text-slate-700 outline-none transition focus:border-teal-500 focus:bg-white focus:ring-4 focus:ring-teal-500/10"
+          className="w-full min-w-0 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-base font-medium leading-6 text-slate-700 outline-none transition focus:border-teal-500 focus:bg-white focus:ring-4 focus:ring-teal-500/10 sm:w-44 sm:shrink-0"
         >
           <option value="">All statuses</option>
           <option value="pending">Pending</option>
@@ -1056,14 +1065,14 @@ export default function DoctorDashboard() {
     dashboard.sessions.length === 0 && (
       <div className="px-6 py-20 text-center">
         <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-xl text-slate-400">
-          ◌
+          ⌕
         </div>
 
         <h3 className="mt-4 text-base font-semibold text-slate-900">
           No sessions found
         </h3>
 
-        <p className="mt-1 text-sm text-slate-500">
+        <p className="mt-1 text-base leading-6 text-slate-500">
           Try changing your search or review filter.
         </p>
       </div>
@@ -1074,7 +1083,7 @@ export default function DoctorDashboard() {
     dashboard &&
     dashboard.sessions.length > 0 && (
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[900px]">
+        <table className="w-full min-w-[1000px] text-base">
 <thead
   className={`border-b transition-colors duration-300 ${
     darkMode
@@ -1134,14 +1143,12 @@ export default function DoctorDashboard() {
         {session.patient.full_name}
       </p>
 
-      <p className="mt-0.5 max-w-[190px] truncate text-xs text-slate-500">
-        {session.patient.email}
-      </p>
+      <p className="mt-1 max-w-[220px] truncate text-sm text-slate-500">
+  {session.patient.email}
+</p>
     </div>
   </div>
 </td>
-
-
 
                 {/* Complaint */}
                 <td className="max-w-[230px] px-6 py-5">
@@ -1163,7 +1170,7 @@ export default function DoctorDashboard() {
     darkMode ? "text-slate-300" : "text-[#626B66]"
   }`}
 >
-  {session.intake_session.symptom_duration || "—"}
+  {session.intake_session.symptom_duration || "Not recorded"}
 </span>
                 </td>
 
@@ -1209,7 +1216,7 @@ export default function DoctorDashboard() {
                           session.patient
                         )
                       }
-                      className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-700 shadow-sm transition hover:border-teal-300 hover:bg-teal-50 hover:text-teal-700"
+                      className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-teal-300 hover:bg-teal-50 hover:text-teal-700"
                     >
                       History
                     </button>
@@ -1218,7 +1225,7 @@ export default function DoctorDashboard() {
                       onClick={() =>
                         openSession(session)
                       }
-                      className="rounded-xl bg-slate-900 px-4 py-2 text-xs font-bold text-white shadow-sm transition hover:bg-teal-700"
+                      className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-700"
                     >
                       Review
                     </button>
@@ -1238,17 +1245,9 @@ export default function DoctorDashboard() {
             }
             className="mt-4 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-600 shadow-sm sm:hidden"
           >
-            ↻ Refresh Dashboard
+            Refresh Dashboard
           </button>
-<button
-  type="button"
-  onClick={() => setDarkMode((current) => !current)}
-  className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-teal-300 hover:bg-teal-50 hover:text-teal-700 hover:shadow-md"
-  title={darkMode ? "Switch to light mode" : "Switch to night mode"}
-  aria-label={darkMode ? "Switch to light mode" : "Switch to night mode"}
->
-  {darkMode ? "☀ Light" : "☾ Night"}
-</button>
+
           <footer className="mt-8 pb-4 text-center">
             <p className="text-xs text-slate-400">
               ClinicBot · AI-assisted clinical documentation
@@ -1273,7 +1272,7 @@ export default function DoctorDashboard() {
               Patient Session History
             </h2>
 
-            <p className="mt-1 text-sm text-slate-500">
+            <p className="mt-1 text-base leading-6 text-slate-500">
               {selectedPatient.full_name}
             </p>
           </div>
@@ -1332,7 +1331,7 @@ export default function DoctorDashboard() {
               Previous Intake Sessions
             </h3>
 
-            <p className="mt-1 text-sm text-slate-500">
+            <p className="mt-1 text-base leading-6 text-slate-500">
               Review this patient&apos;s previous clinical intake records.
             </p>
           </div>
@@ -1372,7 +1371,7 @@ export default function DoctorDashboard() {
                           "No chief complaint provided"}
                       </h4>
 
-                      <p className="mt-1 text-sm text-slate-500">
+                      <p className="mt-1 text-base leading-6 text-slate-500">
                         Duration:{" "}
                         {session.intake_session.symptom_duration ||
                           "Not provided"}
@@ -1483,7 +1482,7 @@ export default function DoctorDashboard() {
                         )}
                       </div>
 
-                      <p className="mt-1 text-sm text-slate-500">
+                      <p className="mt-1 text-base leading-6 text-slate-500">
                         Session #
                         {
                           selectedSession.intake_session
@@ -1907,7 +1906,7 @@ export default function DoctorDashboard() {
                               className="mt-3 w-full resize-none rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm leading-6 text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-teal-500 focus:bg-white focus:ring-4 focus:ring-teal-500/10"
                             />
 
-                            <p className="mt-2 text-right text-[11px] text-slate-400">
+                            <p className="mt-2 text-right text-xs text-slate-400">
                               {reviewNotes.length} characters
                             </p>
                           </div>

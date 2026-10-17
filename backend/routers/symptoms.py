@@ -68,13 +68,32 @@ def add_symptom(
 ):
     get_patient_session(session_id, current_user, db)
 
+
     symptom_name = symptom_name.strip()
 
     if not symptom_name:
         raise HTTPException(
-            status_code=400,
+            status_code=422,
             detail="Symptom name is required.",
         )
+
+    if severity is not None:
+        try:
+            severity_value = int(severity)
+        except (TypeError, ValueError):
+            raise HTTPException(
+                status_code=422,
+                detail="Severity must be an integer from 1 to 10.",
+            )
+
+        if not 1 <= severity_value <= 10:
+            raise HTTPException(
+                status_code=422,
+                detail="Severity must be between 1 and 10.",
+            )
+
+        severity = str(severity_value)
+
 
     symptom = Symptom(
         intake_session_id=session_id,

@@ -36,7 +36,7 @@ export default function PatientRegisterPage() {
 
     try {
       const response = await fetch(
-        "http://127.0.0.1:8000/auth/register",
+        "http://127.0.0.1:8001/auth/register",
         {
           method: "POST",
           headers: {

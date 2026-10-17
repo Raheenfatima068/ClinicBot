@@ -21,7 +21,7 @@ export default function PatientLoginPage() {
 
     try {
       const response = await fetch(
-        "http://127.0.0.1:8000/auth/login",
+        "http://127.0.0.1:8001/auth/login",
         {
           method: "POST",
           headers: {
