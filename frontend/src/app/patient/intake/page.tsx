@@ -362,10 +362,26 @@ export default function PatientIntakePage() {
 
   // Reopen an existing session without creating another one.
   const loadExistingSession = useCallback(
-    async (
-      accessToken: string,
-      existingSessionId: number
-    ) => {
+  async (
+    accessToken: string,
+    existingSessionId: number
+  ) => {
+    // Defer state updates until after the effect's synchronous execution.
+    await Promise.resolve();
+
+    // Validate the requested session ID.
+    if (
+        !Number.isSafeInteger(existingSessionId) ||
+        existingSessionId <= 0
+      ) {
+        setError("The requested session ID is invalid.");
+        setLoading(false);
+        sessionStartRef.current = false;
+        return;
+      }
+
+      setExistingSessionView(true);
+
       try {
         setLoading(true);
         setError("");
@@ -425,7 +441,7 @@ export default function PatientIntakePage() {
           );
         }
 
-                setSessionId(existingSession.id);
+        setSessionId(existingSession.id);
 
         // Check the actual completion status with the backend.
         const questionResponse = await fetch(
@@ -440,7 +456,8 @@ export default function PatientIntakePage() {
           }
         );
 
-        const questionData = await readApiResponse(questionResponse);
+        const questionData =
+          await readApiResponse(questionResponse);
 
         if (!questionResponse.ok) {
           throw new Error(
@@ -460,7 +477,9 @@ export default function PatientIntakePage() {
           );
         }
 
-        setQuestion(questionData.question ?? "Saved intake session");
+        setQuestion(
+          questionData.question ?? "Saved intake session"
+        );
         setCompleted(questionData.field === "complete");
         setProgress(progressMap[questionData.field] ?? 0);
 
@@ -553,38 +572,34 @@ export default function PatientIntakePage() {
 
   // Open a requested session when session_id is in the URL.
   // Otherwise, start the normal new-intake workflow.
-  useEffect(() => {
-    if (!token || sessionStartRef.current) {
-      return;
-    }
+useEffect(() => {
+  if (!token || sessionStartRef.current) {
+    return;
+  }
 
-    sessionStartRef.current = true;
+  sessionStartRef.current = true;
 
-    const requestedSessionId = new URLSearchParams(
-      window.location.search
-    ).get("session_id");
+  const requestedSessionId = new URLSearchParams(
+    window.location.search
+  ).get("session_id");
+
+  const startSession = async () => {
+    // Defer the workflow until after the effect has completed.
+    await new Promise<void>((resolve) => {
+      queueMicrotask(resolve);
+    });
 
     if (requestedSessionId !== null) {
-      setExistingSessionView(true);
-
       const parsedSessionId = Number(requestedSessionId);
-
-      if (
-        !Number.isSafeInteger(parsedSessionId) ||
-        parsedSessionId <= 0
-      ) {
-        setError("The requested session ID is invalid.");
-        setLoading(false);
-        return;
-      }
-
-      void loadExistingSession(token, parsedSessionId);
+      await loadExistingSession(token, parsedSessionId);
       return;
     }
 
-    setExistingSessionView(false);
-    void createSession(token);
-  }, [token, createSession, loadExistingSession]);
+    await createSession(token);
+  };
+
+  void startSession();
+}, [token, createSession, loadExistingSession]);
 
   // Retry the same operation rather than accidentally creating a new session.
   function retrySession() {
@@ -596,16 +611,7 @@ export default function PatientIntakePage() {
 
     if (requestedSessionId !== null) {
       const parsedSessionId = Number(requestedSessionId);
-
-      if (
-        Number.isSafeInteger(parsedSessionId) &&
-        parsedSessionId > 0
-      ) {
-        void loadExistingSession(token, parsedSessionId);
-      } else {
-        setError("The requested session ID is invalid.");
-      }
-
+      void loadExistingSession(token, parsedSessionId);
       return;
     }
 
