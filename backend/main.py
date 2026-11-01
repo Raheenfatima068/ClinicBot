@@ -18,6 +18,9 @@ from routers.conversation import router as conversation_router
 from routers.ai import router as ai_router
 from routers.doctor import router as doctor_router
 from routers.admin import router as admin_router
+from routers.consent import router as consent_router
+from routers.family_history import router as family_history_router
+from routers.medical_documents import router as medical_documents_router
 
 
 # Configure application logging
@@ -81,6 +84,9 @@ app.include_router(conversation_router)
 app.include_router(ai_router)
 app.include_router(doctor_router)
 app.include_router(admin_router)
+app.include_router(consent_router)
+app.include_router(family_history_router)
+app.include_router(medical_documents_router)
 
 
 @app.get("/")
