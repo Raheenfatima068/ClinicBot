@@ -25,6 +25,7 @@ def make_ai_review_setup(current_status="pending"):
         intake_session_id=10,
         summary="Test SOAP summary",
         review_status=current_status,
+        generation_status="completed",
         doctor_notes=None,
         created_at=datetime(2026, 10, 1),
         updated_at=None,

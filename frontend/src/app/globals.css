@@ -5,6 +5,7 @@
    ClinicBot - Global Design System
 ========================================= */
 
+/* LIGHT THEME */
 :root {
   color-scheme: light;
 
@@ -12,8 +13,11 @@
   --foreground: #0f172a;
 
   --card: #ffffff;
+  --card-secondary: #f8fafc;
+
   --muted: #64748b;
   --muted-light: #94a3b8;
+
   --border: #e2e8f0;
 
   --brand: #0d9488;
@@ -34,6 +38,17 @@
   --info: #2563eb;
   --info-soft: #eff6ff;
 
+  --input-bg: #ffffff;
+  --input-border: #cbd5e1;
+
+  --table-header: #f8fafc;
+  --table-row-hover: #f1f5f9;
+
+  --overlay: rgb(15 23 42 / 0.55);
+
+  --scrollbar-track: #f1f5f9;
+  --scrollbar-thumb: #cbd5e1;
+
   --radius-sm: 0.375rem;
   --radius-md: 0.625rem;
   --radius-lg: 0.875rem;
@@ -49,6 +64,76 @@
 
   --shadow-focus:
     0 0 0 3px rgb(13 148 136 / 0.15);
+}
+
+/* =========================================
+   DARK THEME VARIABLES
+
+   Supported theme selectors:
+   html.dark
+   body.dark
+   .dark
+   .clinicbot-dark
+   [data-theme="dark"]
+========================================= */
+
+:root.dark,
+html.dark,
+body.dark,
+.dark,
+.clinicbot-dark,
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --background: #111827;
+  --foreground: #f3f4f6;
+
+  --card: #1f2937;
+  --card-secondary: #273449;
+
+  --muted: #cbd5e1;
+  --muted-light: #9ca3af;
+
+  --border: #374151;
+
+  --brand: #2dd4bf;
+  --brand-dark: #14b8a6;
+  --brand-hover: #0d9488;
+  --brand-soft: #134e4a;
+  --brand-border: #115e59;
+
+  --danger: #f87171;
+  --danger-soft: #451a1a;
+
+  --success: #34d399;
+  --success-soft: #064e3b;
+
+  --warning: #fbbf24;
+  --warning-soft: #451a03;
+
+  --info: #60a5fa;
+  --info-soft: #172554;
+
+  --input-bg: #111827;
+  --input-border: #4b5563;
+
+  --table-header: #273449;
+  --table-row-hover: #29384d;
+
+  --overlay: rgb(0 0 0 / 0.75);
+
+  --scrollbar-track: #1f2937;
+  --scrollbar-thumb: #4b5563;
+
+  --shadow-card:
+    0 1px 2px rgb(0 0 0 / 0.15),
+    0 4px 12px rgb(0 0 0 / 0.12);
+
+  --shadow-card-hover:
+    0 8px 24px rgb(0 0 0 / 0.25);
+
+  --shadow-focus:
+    0 0 0 3px rgb(45 212 191 / 0.2);
 }
 
 /* Tailwind theme integration */
@@ -75,7 +160,7 @@
 }
 
 /* =========================================
-   Global Reset
+   GLOBAL RESET
 ========================================= */
 
 *,
@@ -98,16 +183,16 @@ body {
   background: var(--background);
   color: var(--foreground);
 
-  font-family:
-    Arial,
-    Helvetica,
-    sans-serif;
-
+  font-family: Arial, Helvetica, sans-serif;
   font-size: 14px;
   line-height: 1.6;
 
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+
+  transition:
+    background-color 180ms ease,
+    color 180ms ease;
 }
 
 body,
@@ -115,10 +200,7 @@ button,
 input,
 textarea,
 select {
-  font-family:
-    Arial,
-    Helvetica,
-    sans-serif;
+  font-family: Arial, Helvetica, sans-serif;
 }
 
 button,
@@ -165,7 +247,7 @@ button,
 }
 
 /* =========================================
-   Typography
+   TYPOGRAPHY
 ========================================= */
 
 h1,
@@ -190,7 +272,7 @@ p {
 }
 
 /* =========================================
-   Accessible Focus States
+   ACCESSIBLE FOCUS STATES
 ========================================= */
 
 :focus {
@@ -213,15 +295,16 @@ select:focus-visible {
 }
 
 /* =========================================
-   Reusable ClinicBot Components
+   REUSABLE CLINICBOT COMPONENTS
 ========================================= */
 
-/* Card */
+/* Cards */
 
 .cb-card {
   border: 1px solid var(--border);
   border-radius: var(--radius-xl);
   background: var(--card);
+  color: var(--foreground);
   box-shadow: var(--shadow-card);
 }
 
@@ -233,7 +316,7 @@ select:focus-visible {
 }
 
 .cb-card-hover:hover {
-  border-color: #cbd5e1;
+  border-color: var(--border);
   box-shadow: var(--shadow-card-hover);
 }
 
@@ -273,13 +356,13 @@ select:focus-visible {
 
 .cb-btn-secondary {
   border-color: var(--border);
-  background: #ffffff;
+  background: var(--card);
   color: var(--foreground);
 }
 
 .cb-btn-secondary:hover {
-  background: #f8fafc;
-  border-color: #cbd5e1;
+  background: var(--card-secondary);
+  border-color: var(--border);
 }
 
 .cb-btn-danger {
@@ -304,15 +387,17 @@ select:focus-visible {
   display: block;
   width: 100%;
 
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--input-border);
   border-radius: var(--radius-md);
 
-  background: #ffffff;
+  background: var(--input-bg);
   color: var(--foreground);
 
   transition:
     border-color 160ms ease,
-    box-shadow 160ms ease;
+    box-shadow 160ms ease,
+    background-color 160ms ease,
+    color 160ms ease;
 }
 
 .cb-input,
@@ -337,7 +422,7 @@ select:focus-visible {
 .cb-input:disabled,
 .cb-select:disabled,
 .cb-textarea:disabled {
-  background: #f1f5f9;
+  background: var(--card-secondary);
   cursor: not-allowed;
 }
 
@@ -373,8 +458,8 @@ select:focus-visible {
 }
 
 .cb-badge-neutral {
-  background: #f1f5f9;
-  color: #475569;
+  background: var(--card-secondary);
+  color: var(--muted);
 }
 
 /* Page layout */
@@ -396,21 +481,412 @@ select:focus-visible {
 }
 
 /* =========================================
-   Text Selection
+   DARK MODE - TAILWIND CLASS SUPPORT
+
+   These rules also update components that
+   still use fixed Tailwind light-mode classes.
 ========================================= */
 
-::selection {
-  background: #ccfbf1;
-  color: #134e4a;
+/* Common light backgrounds */
+
+:where(
+  html.dark,
+  body.dark,
+  .dark,
+  .clinicbot-dark,
+  [data-theme="dark"]
+) .bg-white,
+:where(
+  html.dark,
+  body.dark,
+  .dark,
+  .clinicbot-dark,
+  [data-theme="dark"]
+) .bg-gray-50,
+:where(
+  html.dark,
+  body.dark,
+  .dark,
+  .clinicbot-dark,
+  [data-theme="dark"]
+) .bg-gray-100,
+:where(
+  html.dark,
+  body.dark,
+  .dark,
+  .clinicbot-dark,
+  [data-theme="dark"]
+) .bg-slate-50,
+:where(
+  html.dark,
+  body.dark,
+  .dark,
+  .clinicbot-dark,
+  [data-theme="dark"]
+) .bg-slate-100 {
+  background-color: var(--card) !important;
 }
 
-/* =========================================
-   Scrollbar
-========================================= */
+/* Secondary backgrounds */
+
+:where(
+  html.dark,
+  body.dark,
+  .dark,
+  .clinicbot-dark,
+  [data-theme="dark"]
+) .bg-gray-50,
+:where(
+  html.dark,
+  body.dark,
+  .dark,
+  .clinicbot-dark,
+  [data-theme="dark"]
+) .bg-slate-50 {
+  background-color: var(--card-secondary) !important;
+}
+
+/* Text colours */
+
+:where(
+  html.dark,
+  body.dark,
+  .dark,
+  .clinicbot-dark,
+  [data-theme="dark"]
+) .text-gray-900,
+:where(
+  html.dark,
+  body.dark,
+  .dark,
+  .clinicbot-dark,
+  [data-theme="dark"]
+) .text-gray-800,
+:where(
+  html.dark,
+  body.dark,
+  .dark,
+  .clinicbot-dark,
+  [data-theme="dark"]
+) .text-gray-700,
+:where(
+  html.dark,
+  body.dark,
+  .dark,
+  .clinicbot-dark,
+  [data-theme="dark"]
+) .text-slate-900,
+:where(
+  html.dark,
+  body.dark,
+  .dark,
+  .clinicbot-dark,
+  [data-theme="dark"]
+) .text-slate-800,
+:where(
+  html.dark,
+  body.dark,
+  .dark,
+  .clinicbot-dark,
+  [data-theme="dark"]
+) .text-slate-700 {
+  color: var(--foreground) !important;
+}
+
+/* Muted text */
+
+:where(
+  html.dark,
+  body.dark,
+  .dark,
+  .clinicbot-dark,
+  [data-theme="dark"]
+) .text-gray-600,
+:where(
+  html.dark,
+  body.dark,
+  .dark,
+  .clinicbot-dark,
+  [data-theme="dark"]
+) .text-gray-500,
+:where(
+  html.dark,
+  body.dark,
+  .dark,
+  .clinicbot-dark,
+  [data-theme="dark"]
+) .text-gray-400,
+:where(
+  html.dark,
+  body.dark,
+  .dark,
+  .clinicbot-dark,
+  [data-theme="dark"]
+) .text-slate-600,
+:where(
+  html.dark,
+  body.dark,
+  .dark,
+  .clinicbot-dark,
+  [data-theme="dark"]
+) .text-slate-500,
+:where(
+  html.dark,
+  body.dark,
+  .dark,
+  .clinicbot-dark,
+  [data-theme="dark"]
+) .text-slate-400 {
+  color: var(--muted-light) !important;
+}
+
+/* Borders */
+
+:where(
+  html.dark,
+  body.dark,
+  .dark,
+  .clinicbot-dark,
+  [data-theme="dark"]
+) .border-gray-100,
+:where(
+  html.dark,
+  body.dark,
+  .dark,
+  .clinicbot-dark,
+  [data-theme="dark"]
+) .border-gray-200,
+:where(
+  html.dark,
+  body.dark,
+  .dark,
+  .clinicbot-dark,
+  [data-theme="dark"]
+) .border-slate-100,
+:where(
+  html.dark,
+  body.dark,
+  .dark,
+  .clinicbot-dark,
+  [data-theme="dark"]
+) .border-slate-200 {
+  border-color: var(--border) !important;
+}
+
+/* Tables */
+
+:where(
+  html.dark,
+  body.dark,
+  .dark,
+  .clinicbot-dark,
+  [data-theme="dark"]
+) table {
+  color: var(--foreground);
+}
+
+:where(
+  html.dark,
+  body.dark,
+  .dark,
+  .clinicbot-dark,
+  [data-theme="dark"]
+) thead,
+:where(
+  html.dark,
+  body.dark,
+  .dark,
+  .clinicbot-dark,
+  [data-theme="dark"]
+) th {
+  background-color: var(--table-header);
+  color: var(--muted);
+  border-color: var(--border);
+}
+
+:where(
+  html.dark,
+  body.dark,
+  .dark,
+  .clinicbot-dark,
+  [data-theme="dark"]
+) td {
+  border-color: var(--border);
+}
+
+:where(
+  html.dark,
+  body.dark,
+  .dark,
+  .clinicbot-dark,
+  [data-theme="dark"]
+) tbody tr:hover {
+  background-color: var(--table-row-hover);
+}
+
+/* Inputs and dropdowns */
+
+:where(
+  html.dark,
+  body.dark,
+  .dark,
+  .clinicbot-dark,
+  [data-theme="dark"]
+) input,
+:where(
+  html.dark,
+  body.dark,
+  .dark,
+  .clinicbot-dark,
+  [data-theme="dark"]
+) select,
+:where(
+  html.dark,
+  body.dark,
+  .dark,
+  .clinicbot-dark,
+  [data-theme="dark"]
+) textarea {
+  color-scheme: dark;
+  background-color: var(--input-bg);
+  color: var(--foreground);
+  border-color: var(--input-border);
+}
+
+:where(
+  html.dark,
+  body.dark,
+  .dark,
+  .clinicbot-dark,
+  [data-theme="dark"]
+) input::placeholder,
+:where(
+  html.dark,
+  body.dark,
+  .dark,
+  .clinicbot-dark,
+  [data-theme="dark"]
+) textarea::placeholder {
+  color: var(--muted-light);
+}
+
+:where(
+  html.dark,
+  body.dark,
+  .dark,
+  .clinicbot-dark,
+  [data-theme="dark"]
+) select option {
+  background-color: var(--card);
+  color: var(--foreground);
+}
+
+/* Modals and dialogs */
+
+:where(
+  html.dark,
+  body.dark,
+  .dark,
+  .clinicbot-dark,
+  [data-theme="dark"]
+) [role="dialog"] {
+  background-color: var(--card);
+  color: var(--foreground);
+  border-color: var(--border);
+}
+
+/* Reusable ClinicBot components in dark mode */
+
+:where(
+  html.dark,
+  body.dark,
+  .dark,
+  .clinicbot-dark,
+  [data-theme="dark"]
+) .cb-card {
+  background-color: var(--card);
+  color: var(--foreground);
+  border-color: var(--border);
+}
+
+:where(
+  html.dark,
+  body.dark,
+  .dark,
+  .clinicbot-dark,
+  [data-theme="dark"]
+) .cb-btn-secondary {
+  background-color: var(--card-secondary);
+  color: var(--foreground);
+  border-color: var(--border);
+}
+
+:where(
+  html.dark,
+  body.dark,
+  .dark,
+  .clinicbot-dark,
+  [data-theme="dark"]
+) .cb-input,
+:where(
+  html.dark,
+  body.dark,
+  .dark,
+  .clinicbot-dark,
+  [data-theme="dark"]
+) .cb-select,
+:where(
+  html.dark,
+  body.dark,
+  .dark,
+  .clinicbot-dark,
+  [data-theme="dark"]
+) .cb-textarea {
+  background-color: var(--input-bg);
+  color: var(--foreground);
+  border-color: var(--input-border);
+}
+
+/* Preserve readable coloured status badges */
+
+:where(
+  html.dark,
+  body.dark,
+  .dark,
+  .clinicbot-dark,
+  [data-theme="dark"]
+) .cb-badge-pending {
+  background-color: var(--warning-soft);
+  color: #fbbf24;
+}
+
+:where(
+  html.dark,
+  body.dark,
+  .dark,
+  .clinicbot-dark,
+  [data-theme="dark"]
+) .cb-badge-reviewed {
+  background-color: var(--info-soft);
+  color: #93c5fd;
+}
+
+:where(
+  html.dark,
+  body.dark,
+  .dark,
+  .clinicbot-dark,
+  [data-theme="dark"]
+) .cb-badge-approved {
+  background-color: var(--success-soft);
+  color: #6ee7b7;
+}
+
+/* Scrollbar */
 
 * {
   scrollbar-width: thin;
-  scrollbar-color: #cbd5e1 #f1f5f9;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
 }
 
 ::-webkit-scrollbar {
@@ -419,21 +895,28 @@ select:focus-visible {
 }
 
 ::-webkit-scrollbar-track {
-  background: #f1f5f9;
+  background: var(--scrollbar-track);
 }
 
 ::-webkit-scrollbar-thumb {
-  border: 2px solid #f1f5f9;
+  border: 2px solid var(--scrollbar-track);
   border-radius: 9999px;
-  background: #cbd5e1;
+  background: var(--scrollbar-thumb);
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+  background: var(--muted-light);
+}
+
+/* Text selection */
+
+::selection {
+  background: var(--brand-soft);
+  color: var(--foreground);
 }
 
 /* =========================================
-   Responsive Layout
+   RESPONSIVE LAYOUT
 ========================================= */
 
 @media (max-width: 640px) {
@@ -452,7 +935,7 @@ select:focus-visible {
 }
 
 /* =========================================
-   Reduced Motion Accessibility
+   REDUCED MOTION ACCESSIBILITY
 ========================================= */
 
 @media (prefers-reduced-motion: reduce) {
@@ -468,4 +951,147 @@ select:focus-visible {
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+}
+/* =========================================
+   CLINICBOT DARK MODE
+========================================= */
+
+.clinicbot-dark {
+  color-scheme: dark;
+  background-color: #111827;
+  color: #f1f5f9;
+
+  --background: #111827;
+  --foreground: #f1f5f9;
+  --card: #1f2937;
+  --muted: #9ca3af;
+  --border: #374151;
+}
+
+/* White backgrounds */
+.clinicbot-dark .bg-white,
+.clinicbot-dark .bg-white\/95 {
+  background-color: #1f2937 !important;
+}
+
+/* Light gray backgrounds */
+.clinicbot-dark .bg-slate-50,
+.clinicbot-dark .bg-gray-50 {
+  background-color: #273449 !important;
+}
+
+.clinicbot-dark .bg-slate-100,
+.clinicbot-dark .bg-gray-100 {
+  background-color: #374151 !important;
+}
+
+.clinicbot-dark .bg-slate-200 {
+  background-color: #4b5563 !important;
+}
+
+/* Text */
+.clinicbot-dark .text-slate-900,
+.clinicbot-dark .text-slate-800,
+.clinicbot-dark .text-gray-900 {
+  color: #f9fafb !important;
+}
+
+.clinicbot-dark .text-slate-700,
+.clinicbot-dark .text-slate-600,
+.clinicbot-dark .text-gray-700 {
+  color: #d1d5db !important;
+}
+
+.clinicbot-dark .text-slate-500,
+.clinicbot-dark .text-slate-400,
+.clinicbot-dark .text-gray-500 {
+  color: #9ca3af !important;
+}
+
+/* Borders */
+.clinicbot-dark .border-slate-100,
+.clinicbot-dark .border-slate-200,
+.clinicbot-dark .border-slate-300,
+.clinicbot-dark .border-\[\#E4DED2\] {
+  border-color: #374151 !important;
+}
+
+/* Dividers */
+.clinicbot-dark .divide-slate-100 > :not(:last-child) {
+  border-color: #374151 !important;
+}
+
+/* Inputs */
+.clinicbot-dark input,
+.clinicbot-dark select,
+.clinicbot-dark textarea {
+  background-color: #273449;
+  color: #f9fafb;
+  border-color: #4b5563;
+}
+
+.clinicbot-dark input::placeholder,
+.clinicbot-dark textarea::placeholder {
+  color: #9ca3af;
+}
+
+/* Table */
+.clinicbot-dark thead,
+.clinicbot-dark .bg-\[\#F8F5EE\] {
+  background-color: #273449 !important;
+}
+
+.clinicbot-dark tbody tr:hover,
+.clinicbot-dark .hover\:bg-\[\#F3F7F4\]:hover {
+  background-color: #374151 !important;
+}
+
+/* Hover backgrounds */
+.clinicbot-dark .hover\:bg-slate-50:hover {
+  background-color: #374151 !important;
+}
+
+.clinicbot-dark .hover\:bg-slate-100:hover {
+  background-color: #4b5563 !important;
+}
+
+/* Custom light backgrounds */
+.clinicbot-dark .bg-\[\#F5F0E6\],
+.clinicbot-dark .bg-\[\#F3F7F4\] {
+  background-color: #111827 !important;
+}
+
+/* Keep sidebar dark */
+.clinicbot-dark .bg-slate-950 {
+  background-color: #020617 !important;
+}
+
+.clinicbot-dark .bg-slate-900 {
+  background-color: #0f172a !important;
+}
+
+/* Modals */
+.clinicbot-dark .bg-slate-50\/80,
+.clinicbot-dark .bg-slate-50\/70 {
+  background-color: #273449 !important;
+}
+
+/* Shadows */
+.clinicbot-dark .shadow-sm,
+.clinicbot-dark .shadow-xl,
+.clinicbot-dark .shadow-2xl {
+  --tw-shadow-color: rgb(0 0 0 / 0.3);
+}
+
+/* Scrollbar */
+.clinicbot-dark * {
+  scrollbar-color: #4b5563 #1f2937;
+}
+
+.clinicbot-dark ::-webkit-scrollbar-track {
+  background: #1f2937;
+}
+
+.clinicbot-dark ::-webkit-scrollbar-thumb {
+  background: #4b5563;
 }

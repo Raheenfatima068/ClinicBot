@@ -8,7 +8,12 @@ import {
   useRef,
   useState,
 } from "react";
+
 import { useRouter } from "next/navigation";
+
+// ==============================
+// TYPES
+// ==============================
 
 type QuestionResponse = {
   question?: string;
@@ -22,6 +27,9 @@ type ApiResponse = {
   question?: string;
   field?: string;
   answer?: string;
+  valid?: boolean;
+  session_id?: number;
+  status?: string;
 };
 
 type IntakeSession = {
@@ -37,12 +45,23 @@ type ClinicalSummaryResponse = {
   summary_id: number;
   review_status: string;
   summary: string;
+  generation_status?: string;
+  ai_generated?: boolean;
+  fallback_used?: boolean;
+  message?: string;
   doctor_notes?: string | null;
   created_at?: string;
   updated_at?: string;
 };
 
+// ==============================
+// CONSTANTS
+// ==============================
+
 const API_BASE_URL = "http://127.0.0.1:8001";
+
+const ACTIVE_INTAKE_SESSION_KEY =
+  "clinicbot_active_intake_session_id";
 
 const progressMap: Record<string, number> = {
   chief_complaint: 15,
@@ -54,11 +73,17 @@ const progressMap: Record<string, number> = {
   complete: 100,
 };
 
+// ==============================
+// HELPER FUNCTIONS
+// ==============================
+
 function getErrorMessage(
   data: ApiResponse | null,
   fallback: string
 ): string {
-  if (!data) return fallback;
+  if (!data) {
+    return fallback;
+  }
 
   if (typeof data.detail === "string") {
     return data.detail;
@@ -86,23 +111,36 @@ async function readApiResponse(
 }
 
 function formatStatus(status: string): string {
+  if (!status) {
+    return "Unknown";
+  }
+
   return status
     .replace(/_/g, " ")
-    .replace(/\b\w/g, (character) => character.toUpperCase());
+    .replace(/\b\w/g, (character) =>
+      character.toUpperCase()
+    );
 }
 
 function getStatusClasses(status: string): string {
   switch (status.toLowerCase()) {
     case "approved":
       return "bg-green-100 text-green-700";
+
     case "reviewed":
       return "bg-blue-100 text-blue-700";
+
     case "pending":
       return "bg-amber-100 text-amber-700";
+
     default:
       return "bg-slate-100 text-slate-700";
   }
 }
+
+// ==============================
+// MAIN COMPONENT
+// ==============================
 
 export default function PatientIntakePage() {
   const router = useRouter();
@@ -134,36 +172,74 @@ export default function PatientIntakePage() {
 
   const sessionStartRef = useRef(false);
 
-  // Restore the patient's login token.
+  // ==============================
+  // SAVE SESSION ID
+  // ==============================
+
+  const saveSessionIdToUrl = useCallback(
+    (currentSessionId: number) => {
+      localStorage.setItem(
+        ACTIVE_INTAKE_SESSION_KEY,
+        String(currentSessionId)
+      );
+
+      const currentUrl = new URL(window.location.href);
+
+      currentUrl.searchParams.set(
+        "session_id",
+        String(currentSessionId)
+      );
+
+      currentUrl.searchParams.delete("qr_token");
+
+      window.history.replaceState(
+        window.history.state,
+        "",
+        `${currentUrl.pathname}${currentUrl.search}${currentUrl.hash}`
+      );
+    },
+    []
+  );
+
+  // ==============================
+  // RESTORE LOGIN TOKEN
+  // ==============================
+
   useEffect(() => {
     let cancelled = false;
 
-    const restoreToken = async () => {
+    const restoreToken = () => {
       const storedToken = localStorage.getItem(
         "patient_access_token"
       );
 
       if (!storedToken) {
-        router.replace("/patient/login");
+        const currentUrl =
+          window.location.pathname + window.location.search;
+
+        router.replace(
+          `/patient/login?returnTo=${encodeURIComponent(currentUrl)}`
+        );
+
         return;
       }
-
-      await Promise.resolve();
 
       if (!cancelled) {
         setToken(storedToken);
       }
     };
 
-    void restoreToken();
+    restoreToken();
 
     return () => {
       cancelled = true;
     };
   }, [router]);
 
-  // Retrieve a saved clinical summary.
-  // Existing sessions are read-only: do not generate a new summary.
+  // ==============================
+  // FETCH CLINICAL SUMMARY
+  // ==============================
+
   const fetchClinicalSummary = useCallback(
     async (
       accessToken: string,
@@ -181,6 +257,11 @@ export default function PatientIntakePage() {
         Authorization: `Bearer ${accessToken}`,
         Accept: "application/json",
       };
+
+      const wait = (milliseconds: number) =>
+        new Promise<void>((resolve) => {
+          setTimeout(resolve, milliseconds);
+        });
 
       try {
         let response = await fetch(summaryUrl, {
@@ -212,7 +293,7 @@ export default function PatientIntakePage() {
             );
           }
 
-          // Generate a summary only for a new intake workflow.
+          // Ask the backend to generate the missing summary.
           const generateResponse = await fetch(summaryUrl, {
             method: "POST",
             headers,
@@ -230,53 +311,85 @@ export default function PatientIntakePage() {
               )
             );
           }
-
-          response = await fetch(summaryUrl, {
-            method: "GET",
-            headers,
-            cache: "no-store",
-          });
         }
 
-        if (!response.ok) {
-          const body = await readApiResponse(response);
+        // Poll the backend while background generation is running.
+        for (let attempt = 0; attempt < 20; attempt++) {
+          if (attempt > 0 || response.status === 404) {
+            await wait(1500);
 
-          if (response.status === 401) {
+            response = await fetch(summaryUrl, {
+              method: "GET",
+              headers,
+              cache: "no-store",
+            });
+          }
+
+          if (response.status === 404) {
+            continue;
+          }
+
+          if (!response.ok) {
+            const body = await readApiResponse(response);
+
+            if (response.status === 401) {
+              throw new Error(
+                "Your login session has expired. Please log in again."
+              );
+            }
+
+            if (response.status === 403) {
+              throw new Error(
+                "You do not have permission to view this clinical summary."
+              );
+            }
+
             throw new Error(
-              "Your login session has expired. Please log in again."
+              getErrorMessage(
+                body,
+                `Could not load the clinical summary (${response.status}).`
+              )
             );
           }
 
-          if (response.status === 403) {
+          const data =
+            (await response.json()) as ClinicalSummaryResponse;
+
+          const generationStatus =
+            data.generation_status?.toLowerCase();
+
+          if (generationStatus === "failed") {
             throw new Error(
-              "You do not have permission to view this clinical summary."
+              data.message ||
+                "Clinical summary generation failed. Please try again."
             );
           }
 
-          throw new Error(
-            getErrorMessage(
-              body,
-              `Could not load the clinical summary (${response.status}).`
-            )
-          );
+          if (
+            generationStatus === "pending" ||
+            generationStatus === "processing"
+          ) {
+            continue;
+          }
+
+          if (
+            typeof data.summary !== "string" ||
+            !data.summary.trim()
+          ) {
+            continue;
+          }
+
+          setClinicalSummary(data);
+          setSummaryMessage("");
+          return;
         }
 
-        const data =
-          (await response.json()) as ClinicalSummaryResponse;
-
-        if (
-          typeof data.summary !== "string" ||
-          !data.summary.trim()
-        ) {
-          throw new Error(
-            "The server returned an empty clinical summary."
-          );
-        }
-
-        setClinicalSummary(data);
-        setSummaryMessage("");
+        throw new Error(
+          "The clinical summary is still being generated. Please try again shortly."
+        );
       } catch (err) {
         setClinicalSummary(null);
+
         setSummaryMessage(
           err instanceof Error
             ? err.message
@@ -289,7 +402,10 @@ export default function PatientIntakePage() {
     []
   );
 
-  // Load the next question for a new intake.
+  // ==============================
+  // GET NEXT QUESTION
+  // ==============================
+
   const getNextQuestion = useCallback(
     async (
       accessToken: string,
@@ -315,12 +431,6 @@ export default function PatientIntakePage() {
         )) as QuestionResponse | null;
 
         if (!response.ok) {
-          if (response.status === 401) {
-            throw new Error(
-              "Your login session has expired. Please log in again."
-            );
-          }
-
           throw new Error(
             getErrorMessage(
               data as ApiResponse | null,
@@ -344,7 +454,8 @@ export default function PatientIntakePage() {
 
           await fetchClinicalSummary(
             accessToken,
-            currentSessionId
+            currentSessionId,
+            true
           );
         } else {
           setCompleted(false);
@@ -360,17 +471,16 @@ export default function PatientIntakePage() {
     [fetchClinicalSummary]
   );
 
-  // Reopen an existing session without creating another one.
-  const loadExistingSession = useCallback(
-  async (
-    accessToken: string,
-    existingSessionId: number
-  ) => {
-    // Defer state updates until after the effect's synchronous execution.
-    await Promise.resolve();
+  // ==============================
+  // LOAD EXISTING SESSION
+  // ==============================
 
-    // Validate the requested session ID.
-    if (
+  const loadExistingSession = useCallback(
+    async (
+      accessToken: string,
+      existingSessionId: number
+    ) => {
+      if (
         !Number.isSafeInteger(existingSessionId) ||
         existingSessionId <= 0
       ) {
@@ -380,8 +490,6 @@ export default function PatientIntakePage() {
         return;
       }
 
-      setExistingSessionView(true);
-
       try {
         setLoading(true);
         setError("");
@@ -389,9 +497,10 @@ export default function PatientIntakePage() {
         setSessionId(null);
         setProgress(0);
         setCompleted(false);
+        setExistingSessionView(false);
         setClinicalSummary(null);
         setSummaryMessage("");
-        setQuestion("Loading saved clinical summary...");
+        setQuestion("Loading your saved intake...");
 
         const response = await fetch(
           `${API_BASE_URL}/intake/sessions`,
@@ -407,12 +516,6 @@ export default function PatientIntakePage() {
 
         if (!response.ok) {
           const data = await readApiResponse(response);
-
-          if (response.status === 401) {
-            throw new Error(
-              "Your login session has expired. Please log in again."
-            );
-          }
 
           throw new Error(
             getErrorMessage(
@@ -442,8 +545,8 @@ export default function PatientIntakePage() {
         }
 
         setSessionId(existingSession.id);
+        saveSessionIdToUrl(existingSession.id);
 
-        // Check the actual completion status with the backend.
         const questionResponse = await fetch(
           `${API_BASE_URL}/conversation/sessions/${existingSession.id}/next-question`,
           {
@@ -477,21 +580,27 @@ export default function PatientIntakePage() {
           );
         }
 
+        const isComplete =
+          questionData.field === "complete";
+
         setQuestion(
           questionData.question ?? "Saved intake session"
         );
-        setCompleted(questionData.field === "complete");
+
+        setCompleted(isComplete);
+        setExistingSessionView(isComplete);
         setProgress(progressMap[questionData.field] ?? 0);
 
-        // Load the saved summary only if the intake is complete.
-        if (questionData.field === "complete") {
+        if (isComplete) {
           await fetchClinicalSummary(
             accessToken,
             existingSession.id,
-            false
+            true
           );
         }
       } catch (err) {
+        sessionStartRef.current = false;
+
         setError(
           err instanceof Error
             ? err.message
@@ -501,10 +610,98 @@ export default function PatientIntakePage() {
         setLoading(false);
       }
     },
-    [fetchClinicalSummary]
+    [fetchClinicalSummary, saveSessionIdToUrl]
   );
 
-  // Create a session for a genuinely new intake.
+  // ==============================
+  // VALIDATE QR SESSION
+  // ==============================
+
+  const validateAndLoadQrSession = useCallback(
+    async (
+      accessToken: string,
+      requestedSessionId: number,
+      qrToken: string
+    ) => {
+      try {
+        setLoading(true);
+        setError("");
+
+        if (
+          !Number.isSafeInteger(requestedSessionId) ||
+          requestedSessionId <= 0
+        ) {
+          throw new Error(
+            "The QR code contains an invalid session ID."
+          );
+        }
+
+        if (!qrToken.trim()) {
+          throw new Error("The QR code token is missing.");
+        }
+
+        const response = await fetch(
+          `${API_BASE_URL}/intake/qr/validate`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              "Content-Type": "application/json",
+              Accept: "application/json",
+            },
+            body: JSON.stringify({
+              token: qrToken,
+            }),
+            cache: "no-store",
+          }
+        );
+
+        const data = await readApiResponse(response);
+
+        if (!response.ok) {
+          throw new Error(
+            getErrorMessage(
+              data,
+              "This QR code is invalid, expired, or has already been used."
+            )
+          );
+        }
+
+        if (!data || data.valid !== true) {
+          throw new Error(
+            "QR code validation was unsuccessful."
+          );
+        }
+
+        if (data.session_id !== requestedSessionId) {
+          throw new Error(
+            "The QR code does not match the requested intake session."
+          );
+        }
+
+        await loadExistingSession(
+          accessToken,
+          requestedSessionId
+        );
+      } catch (err) {
+        sessionStartRef.current = false;
+
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Unable to validate the QR code."
+        );
+
+        setLoading(false);
+      }
+    },
+    [loadExistingSession]
+  );
+
+  // ==============================
+  // CREATE NEW SESSION
+  // ==============================
+
   const createSession = useCallback(
     async (accessToken: string) => {
       try {
@@ -532,12 +729,6 @@ export default function PatientIntakePage() {
         const data = await readApiResponse(response);
 
         if (!response.ok) {
-          if (response.status === 401) {
-            throw new Error(
-              "Your login session has expired. Please log in again."
-            );
-          }
-
           throw new Error(
             getErrorMessage(
               data,
@@ -552,6 +743,7 @@ export default function PatientIntakePage() {
           );
         }
 
+        saveSessionIdToUrl(data.id);
         setSessionId(data.id);
 
         await getNextQuestion(accessToken, data.id);
@@ -567,59 +759,124 @@ export default function PatientIntakePage() {
         setLoading(false);
       }
     },
-    [getNextQuestion]
+    [getNextQuestion, saveSessionIdToUrl]
   );
 
-  // Open a requested session when session_id is in the URL.
-  // Otherwise, start the normal new-intake workflow.
-useEffect(() => {
-  if (!token || sessionStartRef.current) {
-    return;
-  }
+  // ==============================
+  // INITIAL SESSION RESTORATION
+  // ==============================
 
-  sessionStartRef.current = true;
-
-  const requestedSessionId = new URLSearchParams(
-    window.location.search
-  ).get("session_id");
-
-  const startSession = async () => {
-    // Defer the workflow until after the effect has completed.
-    await new Promise<void>((resolve) => {
-      queueMicrotask(resolve);
-    });
-
-    if (requestedSessionId !== null) {
-      const parsedSessionId = Number(requestedSessionId);
-      await loadExistingSession(token, parsedSessionId);
-      return;
-    }
-
-    await createSession(token);
-  };
-
-  void startSession();
-}, [token, createSession, loadExistingSession]);
-
-  // Retry the same operation rather than accidentally creating a new session.
-  function retrySession() {
-    if (!token || loading) return;
-
-    const requestedSessionId = new URLSearchParams(
-      window.location.search
-    ).get("session_id");
-
-    if (requestedSessionId !== null) {
-      const parsedSessionId = Number(requestedSessionId);
-      void loadExistingSession(token, parsedSessionId);
+  useEffect(() => {
+    if (!token || sessionStartRef.current) {
       return;
     }
 
     sessionStartRef.current = true;
-    void createSession(token);
+
+    const params = new URLSearchParams(
+      window.location.search
+    );
+
+    // Prefer the URL session ID. If missing, restore from storage.
+    const urlSessionId = params.get("session_id");
+
+    const storedSessionId = localStorage.getItem(
+      ACTIVE_INTAKE_SESSION_KEY
+    );
+
+    const requestedSessionId =
+      urlSessionId || storedSessionId;
+
+    const qrToken = params.get("qr_token");
+
+    const startSession = async () => {
+      if (requestedSessionId !== null) {
+        const parsedSessionId = Number(requestedSessionId);
+
+        if (qrToken) {
+          await validateAndLoadQrSession(
+            token,
+            parsedSessionId,
+            qrToken
+          );
+        } else {
+          await loadExistingSession(
+            token,
+            parsedSessionId
+          );
+        }
+
+        return;
+      }
+
+      if (qrToken) {
+        setError(
+          "The QR code is missing its intake session ID."
+        );
+        setLoading(false);
+        sessionStartRef.current = false;
+        return;
+      }
+
+      await createSession(token);
+    };
+
+    void startSession();
+  }, [
+    token,
+    createSession,
+    loadExistingSession,
+    validateAndLoadQrSession,
+  ]);
+
+  // ==============================
+  // RETRY SESSION
+  // ==============================
+
+  async function retrySession() {
+    if (!token || loading) {
+      return;
+    }
+
+    const params = new URLSearchParams(
+      window.location.search
+    );
+
+    const requestedSessionId =
+      params.get("session_id") ||
+      localStorage.getItem(ACTIVE_INTAKE_SESSION_KEY);
+
+    const qrToken = params.get("qr_token");
+
+    if (requestedSessionId !== null) {
+      sessionStartRef.current = true;
+
+      const parsedSessionId = Number(requestedSessionId);
+
+      if (qrToken) {
+        await validateAndLoadQrSession(
+          token,
+          parsedSessionId,
+          qrToken
+        );
+      } else {
+        await loadExistingSession(
+          token,
+          parsedSessionId
+        );
+      }
+
+      return;
+    }
+
+    sessionStartRef.current = true;
+    await createSession(token);
   }
 
-  // Submit answers only during a new intake.
+  // ==============================
+  // SUBMIT ANSWER
+  // ==============================
+
   async function submitAnswer(
     event: FormEvent<HTMLFormElement>
   ) {
@@ -627,7 +884,7 @@ useEffect(() => {
 
     if (existingSessionView) {
       setError(
-        "This is a saved intake session and cannot be edited here."
+        "This completed intake session cannot be edited."
       );
       return;
     }
@@ -662,12 +919,6 @@ useEffect(() => {
       const data = await readApiResponse(response);
 
       if (!response.ok) {
-        if (response.status === 401) {
-          throw new Error(
-            "Your login session has expired. Please log in again."
-          );
-        }
-
         throw new Error(
           getErrorMessage(
             data,
@@ -677,6 +928,7 @@ useEffect(() => {
       }
 
       setAnswer("");
+
       await getNextQuestion(token, sessionId);
     } catch (err) {
       setError(
@@ -689,10 +941,56 @@ useEffect(() => {
     }
   }
 
+  // ==============================
+  // START A NEW INTAKE
+  // ==============================
+
+  async function startNewIntake() {
+    if (!token || loading || submitting) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      "Start a new intake session? Your previous session will remain saved."
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    localStorage.removeItem(
+      ACTIVE_INTAKE_SESSION_KEY
+    );
+
+    const currentUrl = new URL(window.location.href);
+
+    currentUrl.searchParams.delete("session_id");
+    currentUrl.searchParams.delete("qr_token");
+
+    window.history.replaceState(
+      window.history.state,
+      "",
+      `${currentUrl.pathname}${currentUrl.search}${currentUrl.hash}`
+    );
+
+    sessionStartRef.current = true;
+
+    await createSession(token);
+  }
+
+  // ==============================
+  // LOGOUT
+  // ==============================
+
   function logout() {
     localStorage.removeItem("patient_access_token");
+
     router.replace("/patient/login");
   }
+
+  // ==============================
+  // PAGE UI
+  // ==============================
 
   return (
     <main className="min-h-screen bg-slate-50 text-slate-800">
@@ -702,6 +1000,7 @@ useEffect(() => {
             <h1 className="text-xl font-bold text-teal-700">
               ClinicBot
             </h1>
+
             <p className="text-sm text-slate-500">
               Clinical Intake Agent
             </p>
@@ -782,19 +1081,22 @@ useEffect(() => {
               role="alert"
               className="mb-5 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700"
             >
-              <p className="font-semibold">Something went wrong</p>
-              <p className="mt-1 break-words">{error}</p>
+              <p className="font-semibold">
+                Something went wrong
+              </p>
 
-              {!sessionId && (
-                <button
-                  type="button"
-                  onClick={retrySession}
-                  disabled={loading || !token}
-                  className="mt-3 rounded-lg bg-red-700 px-4 py-2 font-medium text-white hover:bg-red-800 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  Try again
-                </button>
-              )}
+              <p className="mt-1 break-words">
+                {error}
+              </p>
+
+              <button
+                type="button"
+                onClick={() => void retrySession()}
+                disabled={loading || !token}
+                className="mt-3 rounded-lg bg-red-700 px-4 py-2 font-medium text-white hover:bg-red-800 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Try again
+              </button>
 
               {error.toLowerCase().includes("login session") && (
                 <button
@@ -816,9 +1118,7 @@ useEffect(() => {
               />
 
               <p className="font-medium text-slate-700">
-                {existingSessionView
-                  ? "Loading your saved intake..."
-                  : "Preparing your intake session..."}
+                Loading your intake session...
               </p>
 
               <p className="mt-2 text-sm text-slate-500">
@@ -833,12 +1133,9 @@ useEffect(() => {
                 </h3>
 
                 <p className="mt-2 text-sm leading-6 text-green-800">
-                  {existingSessionView
-                    ? "This is your saved intake session. Your original answers and clinical summary have not been changed."
-                    : "Thank you. Your answers have been submitted. Your clinical summary is shown below when available."}
-                  {" "}
-                  Your doctor should review the information before
-                  making clinical decisions.
+                  Your answers have been saved. Your doctor
+                  should review the information before making
+                  clinical decisions.
                 </p>
               </div>
 
@@ -862,11 +1159,23 @@ useEffect(() => {
                 </div>
 
                 {summaryLoading ? (
-                  <p className="mt-4 text-sm text-slate-500">
-                    Loading your clinical summary...
-                  </p>
+                  <div className="mt-4 flex items-center gap-3 text-sm text-slate-500">
+                    <div className="h-5 w-5 animate-spin rounded-full border-2 border-slate-200 border-t-teal-600" />
+
+                    Generating or loading your clinical summary...
+                  </div>
                 ) : clinicalSummary ? (
                   <>
+                    {clinicalSummary.fallback_used && (
+                      <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                        <strong>Fallback draft:</strong> Gemini
+                        AI was unavailable. This summary is based
+                        on patient-provided information and has
+                        not been verified by AI. Your doctor must
+                        review it.
+                      </div>
+                    )}
+
                     <div className="mt-4 whitespace-pre-wrap break-words text-sm leading-7 text-slate-700">
                       {clinicalSummary.summary}
                     </div>
@@ -897,7 +1206,7 @@ useEffect(() => {
                           void fetchClinicalSummary(
                             token,
                             sessionId,
-                            !existingSessionView
+                            true
                           )
                         }
                         disabled={summaryLoading}
@@ -910,9 +1219,19 @@ useEffect(() => {
                 )}
               </div>
 
+              <button
+                type="button"
+                onClick={() => void startNewIntake()}
+                disabled={loading || submitting}
+                className="w-full rounded-xl bg-teal-700 px-5 py-3 text-sm font-semibold text-white transition hover:bg-teal-800 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Start a new intake
+              </button>
+
               <p className="text-xs leading-5 text-slate-500">
                 This summary supports clinical documentation.
-                It is not a diagnosis or a substitute for medical advice.
+                It is not a diagnosis or a substitute for medical
+                advice.
               </p>
             </div>
           ) : (
@@ -927,7 +1246,9 @@ useEffect(() => {
               <textarea
                 id="patient-answer"
                 value={answer}
-                onChange={(event) => setAnswer(event.target.value)}
+                onChange={(event) =>
+                  setAnswer(event.target.value)
+                }
                 placeholder="Type your answer here..."
                 rows={5}
                 required

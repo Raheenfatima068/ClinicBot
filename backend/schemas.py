@@ -76,3 +76,37 @@ class ClinicalSummaryReview(BaseModel):
         if value is not None:
             return value.strip()
         return value
+
+# ============================================================
+# BULK CLINICAL SUMMARY REVIEW
+# ============================================================
+
+class BulkClinicalSummaryReview(BaseModel):
+    session_ids: list[int] = Field(min_length=1, max_length=100)
+    review_status: Literal["pending", "reviewed", "approved"]
+    doctor_notes: str | None = Field(default=None, max_length=5000)
+
+    @field_validator("session_ids")
+    @classmethod
+    def validate_session_ids(cls, value: list[int]) -> list[int]:
+        if any(session_id <= 0 for session_id in value):
+            raise ValueError("Session IDs must be positive integers.")
+
+        if len(value) != len(set(value)):
+            raise ValueError("Duplicate session IDs are not allowed.")
+
+        return value
+
+    @field_validator("review_status", mode="before")
+    @classmethod
+    def normalize_review_status(cls, value):
+        if isinstance(value, str):
+            return value.strip().lower()
+        return value
+
+    @field_validator("doctor_notes")
+    @classmethod
+    def trim_doctor_notes(cls, value):
+        if value is not None:
+            return value.strip()
+        return value
