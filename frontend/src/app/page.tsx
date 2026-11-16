@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useState,
+  useSyncExternalStore,
   type FormEvent,
   type ChangeEvent,
 } from "react";
@@ -99,7 +100,25 @@ type SoapSection = {
 };
 
 const API_URL = "http://127.0.0.1:8001";
+const THEME_CHANGE_EVENT = "clinicbot-theme-change";
 
+function subscribeToTheme(callback: () => void) {
+  window.addEventListener("storage", callback);
+  window.addEventListener(THEME_CHANGE_EVENT, callback);
+
+  return () => {
+    window.removeEventListener("storage", callback);
+    window.removeEventListener(THEME_CHANGE_EVENT, callback);
+  };
+}
+
+function getThemeSnapshot() {
+  return localStorage.getItem("clinicbot_theme") === "dark";
+}
+
+function getServerThemeSnapshot() {
+  return false;
+}
 const NAV_ITEMS = [
   { label: "Dashboard", value: "" },
   { label: "Pending Reviews", value: "pending" },
@@ -131,27 +150,26 @@ export default function DoctorDashboard() {
 
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [showSuccessToast, setShowSuccessToast] = useState(false);
-  const [darkMode, setDarkMode] = useState(false);
-  const [themeLoaded, setThemeLoaded] = useState(false);
+  const darkMode = useSyncExternalStore(
+  subscribeToTheme,
+  getThemeSnapshot,
+  getServerThemeSnapshot
+);
 
   // --------------------------------------------------
   // LOAD AND SAVE THEME PREFERENCE
   // --------------------------------------------------
 
-  useEffect(() => {
-    const savedTheme = localStorage.getItem("clinicbot_theme");
-    setDarkMode(savedTheme === "dark");
-    setThemeLoaded(true);
-  }, []);
+  function toggleTheme() {
+  const nextTheme = !darkMode;
 
-  useEffect(() => {
-    if (!themeLoaded) return;
+  localStorage.setItem(
+    "clinicbot_theme",
+    nextTheme ? "dark" : "light"
+  );
 
-    localStorage.setItem(
-      "clinicbot_theme",
-      darkMode ? "dark" : "light"
-    );
-  }, [darkMode, themeLoaded]);
+  window.dispatchEvent(new Event(THEME_CHANGE_EVENT));
+}
 
   // --------------------------------------------------
   // FETCH DASHBOARD
@@ -227,10 +245,15 @@ export default function DoctorDashboard() {
     [router]
   );
 
-  useEffect(() => {
-    fetchDashboard("", "");
-  }, [fetchDashboard]);
+ useEffect(() => {
+  const timer = window.setTimeout(() => {
+    void fetchDashboard("", "");
+  }, 0);
 
+  return () => {
+    window.clearTimeout(timer);
+  };
+}, [fetchDashboard]);
   // --------------------------------------------------
   // SEARCH AND FILTER
   // --------------------------------------------------
@@ -678,7 +701,7 @@ export default function DoctorDashboard() {
 
           <button
             type="button"
-            onClick={() => setDarkMode((current) => !current)}
+            onClick={toggleTheme}
             className="mb-2 flex w-full items-center justify-between rounded-xl border border-slate-700 px-3 py-3 text-sm font-medium text-slate-200 transition hover:border-teal-400 hover:bg-slate-800"
           >
             <span>{darkMode ? "Light mode" : "Night mode"}</span>
@@ -787,7 +810,7 @@ export default function DoctorDashboard() {
               </button>
               <button
                 type="button"
-                onClick={() => setDarkMode((current) => !current)}
+                onClick={toggleTheme}
                 className="w-full rounded-xl px-4 py-3 text-left text-sm font-semibold text-slate-700 hover:bg-slate-100"
               >
                 {darkMode ? "Switch to Light Mode" : "Switch to Night Mode"}
