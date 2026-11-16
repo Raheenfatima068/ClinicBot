@@ -1,7 +1,9 @@
+
 "use client";
 
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 
 type UserResponse = {
   id: number;
@@ -26,7 +28,6 @@ export default function LoginPage() {
     setError("");
 
     try {
-      // Step 1: Login
       const loginResponse = await fetch(
         "http://127.0.0.1:8001/auth/login",
         {
@@ -50,13 +51,11 @@ export default function LoginPage() {
         );
       }
 
-      // Save JWT
       localStorage.setItem(
         "access_token",
         loginData.access_token
       );
 
-      // Step 2: Get logged-in user's role
       const meResponse = await fetch(
         "http://127.0.0.1:8001/auth/me",
         {
@@ -75,7 +74,6 @@ export default function LoginPage() {
         );
       }
 
-      // Step 3: Redirect according to role
       if (userData.role === "admin") {
         router.push("/admin");
       } else if (userData.role === "doctor") {
@@ -103,6 +101,7 @@ export default function LoginPage() {
   return (
     <main className="flex min-h-screen items-center justify-center bg-slate-100 px-6">
       <div className="w-full max-w-md rounded-2xl bg-white p-8 shadow-lg">
+
         {/* Header */}
         <div className="mb-8 text-center">
           <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-teal-500 text-xl font-bold text-white">
@@ -123,10 +122,8 @@ export default function LoginPage() {
         </div>
 
         {/* Login Form */}
-        <form
-          onSubmit={handleLogin}
-          className="space-y-5"
-        >
+        <form onSubmit={handleLogin} className="space-y-5">
+
           {/* Email */}
           <div>
             <label
@@ -140,9 +137,7 @@ export default function LoginPage() {
               id="email"
               type="email"
               value={email}
-              onChange={(event) =>
-                setEmail(event.target.value)
-              }
+              onChange={(event) => setEmail(event.target.value)}
               placeholder="Enter your email"
               required
               autoComplete="email"
@@ -163,14 +158,22 @@ export default function LoginPage() {
               id="password"
               type="password"
               value={password}
-              onChange={(event) =>
-                setPassword(event.target.value)
-              }
+              onChange={(event) => setPassword(event.target.value)}
               placeholder="Enter your password"
               required
               autoComplete="current-password"
               className="w-full rounded-lg border border-slate-300 px-4 py-3 text-slate-900 outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
             />
+
+            {/* Forgot Password Link */}
+            <div className="mt-2 text-right">
+              <Link
+                href="/patient/forgot-password"
+                className="text-sm font-medium text-teal-600 transition hover:text-teal-700 hover:underline"
+              >
+                Forgot Password?
+              </Link>
+            </div>
           </div>
 
           {/* Error */}
@@ -182,7 +185,7 @@ export default function LoginPage() {
             </div>
           )}
 
-          {/* Button */}
+          {/* Login Button */}
           <button
             type="submit"
             disabled={loading}
@@ -199,6 +202,7 @@ export default function LoginPage() {
             workspace you can access.
           </p>
         </div>
+
       </div>
     </main>
   );

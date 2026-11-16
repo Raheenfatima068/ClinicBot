@@ -74,21 +74,41 @@ export default function PatientLoginPage() {
         );
       }
 
-      const accessToken = (data as { access_token?: unknown })
-        .access_token;
+      const accessToken = (
+        data as { access_token?: unknown }
+      ).access_token;
 
-      if (typeof accessToken !== "string" || !accessToken) {
+      if (
+        typeof accessToken !== "string" ||
+        !accessToken
+      ) {
         throw new Error(
           "Login succeeded, but the access token is invalid."
         );
       }
 
+      // Save the authenticated patient's token.
       localStorage.setItem(
         "patient_access_token",
         accessToken
       );
 
-      router.push("/patient/intake");
+      // Preserve the original QR intake URL after login.
+      const params = new URLSearchParams(
+        window.location.search
+      );
+
+      const requestedReturnTo = params.get("returnTo");
+
+      // Only allow a local patient intake destination.
+      const destination =
+        requestedReturnTo &&
+        requestedReturnTo.startsWith("/patient/intake") &&
+        !requestedReturnTo.startsWith("//")
+          ? requestedReturnTo
+          : "/patient/intake";
+
+      router.replace(destination);
     } catch (err) {
       if (err instanceof Error) {
         setError(err.message);
@@ -107,6 +127,7 @@ export default function PatientLoginPage() {
   return (
     <main className="min-h-screen bg-slate-50">
       <div className="grid min-h-screen lg:grid-cols-2">
+
         {/* Branding Panel */}
         <section className="relative hidden overflow-hidden bg-slate-900 lg:flex">
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,_rgba(45,212,191,0.18),_transparent_45%)]" />
@@ -214,6 +235,7 @@ export default function PatientLoginPage() {
         {/* Login Form */}
         <section className="flex items-center justify-center px-6 py-12 sm:px-10 lg:px-16">
           <div className="w-full max-w-md">
+
             {/* Mobile Branding */}
             <div className="mb-10 flex items-center gap-3 lg:hidden">
               <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-slate-900 text-xl font-bold text-white">
@@ -246,7 +268,11 @@ export default function PatientLoginPage() {
             </div>
 
             <div className="rounded-2xl border border-slate-200 bg-white p-7 shadow-xl shadow-slate-200/50 sm:p-8">
-              <form onSubmit={handleLogin} className="space-y-6">
+              <form
+                onSubmit={handleLogin}
+                className="space-y-6"
+              >
+
                 {/* Email */}
                 <div>
                   <label
@@ -361,4 +387,3 @@ export default function PatientLoginPage() {
     </main>
   );
 }
-

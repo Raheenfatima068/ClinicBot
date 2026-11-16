@@ -28,9 +28,10 @@ router = APIRouter(
 )
 
 FALLBACK_MARKERS = (
+    "AI SUMMARY UNAVAILABLE - FALLBACK DRAFT",
     "AI SUMMARY UNAVAILABLE — FALLBACK DRAFT",
-    # Accept the mojibake form used by some older service-file encodings.
     "AI SUMMARY UNAVAILABLE â€” FALLBACK DRAFT",
+    "AI SUMMARY UNAVAILABLE Ã¢â‚¬â€ FALLBACK DRAFT",
 )
 PENDING_SUMMARY_TEXT = (
     "Summary generation is in progress. This placeholder is not a clinical summary."

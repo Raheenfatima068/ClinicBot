@@ -17,7 +17,10 @@ from models import (
     ClinicalSummary,
 )
 from dependencies import get_current_user
-from schemas import ClinicalSummaryReview
+from schemas import (
+    ClinicalSummaryReview,
+    BulkClinicalSummaryReview,
+)
 from services.intake_logic import can_change_status
 
 
@@ -528,4 +531,139 @@ def review_doctor_session(
         raise HTTPException(
             status_code=500,
             detail="Unable to save the clinical summary review.",
+        ) from exc
+
+# --------------------------------------------------
+# BULK REVIEW CLINICAL SUMMARIES
+# PUT /doctor/summaries/bulk-review
+# --------------------------------------------------
+
+@router.put("/summaries/bulk-review")
+def bulk_review_summaries(
+    review_data: BulkClinicalSummaryReview,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    require_doctor(current_user)
+
+    session_ids = review_data.session_ids
+    new_status = review_data.review_status
+    doctor_notes = review_data.doctor_notes
+
+    if new_status in {"reviewed", "approved"} and not doctor_notes:
+        raise HTTPException(
+            status_code=422,
+            detail="Doctor notes are required for reviewed or approved summaries.",
+        )
+
+    try:
+        # Retrieve only sessions assigned to this doctor
+        # and belonging to this doctor's clinic.
+        sessions = (
+            db.query(IntakeSession)
+            .join(
+                PatientProfile,
+                IntakeSession.patient_id == PatientProfile.id,
+            )
+            .join(User, PatientProfile.user_id == User.id)
+            .filter(
+                IntakeSession.id.in_(session_ids),
+                IntakeSession.assigned_doctor_id == current_user.id,
+                User.tenant_id == current_user.tenant_id,
+            )
+            .all()
+        )
+
+        if len(sessions) != len(session_ids):
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    "One or more sessions were not found "
+                    "or are not assigned to this doctor."
+                ),
+            )
+
+        summaries = (
+            db.query(ClinicalSummary)
+            .filter(
+                ClinicalSummary.intake_session_id.in_(session_ids)
+            )
+            .all()
+        )
+
+        summaries_by_session = {
+            summary.intake_session_id: summary
+            for summary in summaries
+        }
+
+        if len(summaries_by_session) != len(session_ids):
+            raise HTTPException(
+                status_code=404,
+                detail="One or more clinical summaries were not found.",
+            )
+
+        # Validate every summary before modifying any record.
+        for session_id in session_ids:
+            summary = summaries_by_session[session_id]
+
+            if summary.generation_status != "completed":
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"Summary generation is not completed "
+                        f"for session {session_id}."
+                    ),
+                )
+
+            current_status = summary.review_status
+
+            if (
+                current_status != new_status
+                and not can_change_status(current_status, new_status)
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"Cannot change session {session_id} "
+                        f"from '{current_status}' to '{new_status}'."
+                    ),
+                )
+
+        # Apply changes only after all records pass validation.
+        updated_sessions = []
+
+        for session_id in session_ids:
+            summary = summaries_by_session[session_id]
+
+            summary.review_status = new_status
+            summary.doctor_notes = doctor_notes
+
+            updated_sessions.append(
+                {
+                    "session_id": session_id,
+                    "summary_id": summary.id,
+                    "review_status": summary.review_status,
+                }
+            )
+
+        db.commit()
+
+        return {
+            "message": "Clinical summaries updated successfully.",
+            "updated_count": len(updated_sessions),
+            "review_status": new_status,
+            "sessions": updated_sessions,
+        }
+
+    except HTTPException:
+        db.rollback()
+        raise
+
+    except SQLAlchemyError as exc:
+        db.rollback()
+        logger.exception("Database error during bulk summary review.")
+
+        raise HTTPException(
+            status_code=500,
+            detail="Unable to complete bulk clinical summary review.",
         ) from exc

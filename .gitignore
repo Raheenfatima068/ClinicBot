@@ -1,28 +1,55 @@
 
+# ==========================================
 # Local database backups
+# ==========================================
 backend/clinicbot_backup_*.dump
 
-# Temporary frontend backups
-frontend/src/app/*.backup.tsx
-frontend/src/app/*.step1-backup.tsx
-
-# Local database backups
-backend/clinicbot_backup_*.dump
-
-# Temporary frontend backups
-frontend/src/app/**/*.backup.tsx
-frontend/src/app/**/*.step1-backup.tsx
-
+# ==========================================
 # Python generated files and virtual environments
+# ==========================================
 __pycache__/
 *.py[cod]
 .venv/
 venv/
 
-# Local secrets
+# ==========================================
+# Local secrets and environment files
+# ==========================================
 .env
 .env.*
 !.env.example
 
+# ==========================================
 # Runtime logs
+# ==========================================
 *.log
+
+# ==========================================
+# Temporary frontend backups
+# ==========================================
+frontend/src/app/*.backup.tsx
+frontend/src/app/*.step1-backup.tsx
+frontend/src/app/**/*.backup.tsx
+frontend/src/app/**/*.step1-backup.tsx
+
+# ==========================================
+# Private medical documents
+# ==========================================
+backend/private_medical_documents/
+
+# ==========================================
+# Generated QR code images
+# ==========================================
+backend/patient_intake_qr.png
+
+# ==========================================
+# Temporary backup files
+# ==========================================
+*.bak
+*.week8-backup
+
+# ==========================================
+# Local test database helper scripts
+# ==========================================
+backend/check_test_db.py
+backend/create_test_db.py
